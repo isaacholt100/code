@@ -16,7 +16,7 @@ def poly_approx(f, basis, sample_points: list, max_degree: int, dimension: int):
     design_matrix = np.matrix([
         [basis(idx)(x) for idx in indices] for x in sample_points
     ])
-    values = [f(x) for x in sample_points]
+    values = [f(*x) for x in sample_points]
     beta = estimate_coeffs(design_matrix, values)
     def approx(x): # approximation of f
         return sum(basis(idx)(x) * beta[i] for (i, idx) in enumerate(indices))
@@ -94,7 +94,7 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
     for basis in bases:
         for (points_name, points) in points_dict.items():
             (approx, coeffs) = poly_approx(f, basis, points, max_degree, dimension=dim)
-            max_error = max(np.abs(approx(x) - f(x)) for x in grid_points) # estimate of the max norm
+            max_error = max(np.abs(approx(x) - f(*x)) for x in grid_points) # estimate of the max norm
             print(f"estimated max error (basis: {basis.__name__}, points: {points_name}):", max_error)
 
             even_coeffs = coeffs[::2]
@@ -102,49 +102,50 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
             # plt.scatter(range(0, max_degree + 1, 2), even_coeffs, marker="o")
             # plt.scatter(range(1, max_degree + 1, 2), odd_coeffs, marker="o")
             # plt.show()
-            # plt.plot([x[0] for x in grid_points], [f(x) for x in grid_points], color="blue")
-            # plt.plot([x[0] for x in grid_points], [approx(x) for x in grid_points], color="red")
+            if dim == 1:
+                plt.plot([x[0] for x in grid_points], [f(x[0]) for x in grid_points], color="blue")
+                plt.plot([x[0] for x in grid_points], [approx(x) for x in grid_points], color="red")
+                plt.show()
             # plt.plot(np.linspace(-1, 1, 100), [f([x, 0]) for x in np.linspace(-1, 1, 100)], color="blue")
             # plt.plot(np.linspace(-1, 1, 100), [approx([x, 0]) for x in np.linspace(-1, 1, 100)], color="red")
-            # plt.show()
 
-max_degree = 10
-num_sample_points = 500
-rho = 1/4
+rho = 0
 
-def f(l: list[float]):
-    x = l[0]
+def f(x):
     return math.sin(x) + 1/4 * math.cos(20 * x)
 
-def g(l: list[float]):
-    [x, y] = l
+def g(x, y):
     return x**2 + y**3 - 2*x*y - x**4 * y**3 + x**2 * y**5
 
-def h(l: list[float]):
-    [r, theta] = l
+def h(r, theta):
     return math.sin(theta)**3 / (1 + r**2)
 
 # [-1, 1] cheb basis
-analysis(f, domains=[(-1, 1)], bases=[cheb_basis], max_degree=max_degree, num_sample_points=num_sample_points)
+analysis(f, domains=[(-1, 1)], bases=[cheb_basis], max_degree=40, num_sample_points=100)
 
 # [rho, 1] scaled cheb basis
-analysis(f, domains=[(rho, 1)], bases=[cheb_basis_scaled(rho)], max_degree=max_degree, num_sample_points=num_sample_points)
+analysis(f, domains=[(rho, 1)], bases=[cheb_basis_scaled(rho)], max_degree=20, num_sample_points=100)
 
 # [0, 2pi] trig basis
-analysis(f, domains=[(0, np.pi)], bases=[trig_basis], max_degree=max_degree*2, num_sample_points=num_sample_points)
+analysis(f, domains=[(0, np.pi)], bases=[trig_basis], max_degree=40*2, num_sample_points=100)
 
 # [-1, 1]^2 (unit square) cheb tensor product basis
-analysis(g, domains=[(-1, 1), (-1, 1)], bases=[cheb_basis], max_degree=max_degree, num_sample_points=num_sample_points)
+analysis(g, domains=[(-1, 1), (-1, 1)], bases=[cheb_basis], max_degree=20, num_sample_points=500)
 
 # tensor product of chebyshev basis (for radius) and trig basis (for angle)
-analysis(h, domains=[(rho, 1), (0, 2 * np.pi)], bases=[annulus_basis(rho)], max_degree=max_degree*2, num_sample_points=num_sample_points)
+analysis(h, domains=[(rho, 1), (0, 2 * np.pi)], bases=[annulus_basis(rho)], max_degree=10*2, num_sample_points=500)
 
-def non_smooth(l: list[float]):
-    x = l[0]
+def non_smooth_1(x):
     return max(math.sin(x), math.sin(2 * x), math.cos(x))
 
+def non_smooth_2(x):
+    return 1/4 * (abs(x - 1/2) - abs(x) + abs(x - 0.8))
+
 # non-smooth function approximated with chebyshev basis
-analysis(non_smooth, domains=[(-1, 1)], bases=[cheb_basis], max_degree=100, num_sample_points=1000)
+# analysis(non_smooth_1, domains=[(-1, 1)], bases=[cheb_basis], max_degree=100, num_sample_points=1000)
+
+# non-smooth function approximated with chebyshev basis
+# analysis(non_smooth_2, domains=[(-1, 1)], bases=[cheb_basis], max_degree=100, num_sample_points=1000)
 
 # progression: 1d [rho, 1] poly approx, 1d 2pi periodic trig polynomial approx, 2d square, annulus
 # read up on condition number
