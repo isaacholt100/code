@@ -41,6 +41,8 @@ def max_degree_indices(max_degree: int, dimension: int): # list of all indices t
         return indices
     raise Exception("dimension must be 1, 2 or 3")
 
+# bases
+
 def chebshev_t(n: int, x: float):
     return math.cos(n * math.acos(x))
 
@@ -50,7 +52,7 @@ def cheb_basis(idx: list[int]): # tensor product chebyshev basis, each item of `
 def cheb_basis_scaled(rho: float): # scale chebyshev functions from domain [-1, 1]^n to [rho, 1]^n
     assert rho < 1
     def basis(idx: list[int]):
-        return lambda x: cheb_basis(idx)([(1 - 2 * x[i] + rho)/(rho - 1) for i in range(len(idx))])
+        return lambda x: cheb_basis(idx)([np.clip((1 - 2 * x[i] + rho)/(rho - 1), -1, 1) for i in range(len(idx))]) # rescale and clamp between -1 and 1 to prevent domain error
     return basis
 
 def monomial_basis(n: int):
@@ -67,13 +69,28 @@ def trig_basis(idx: list[int]): # NB: to define up to maximum degree (frequency)
 def annulus_basis(rho: float):
     assert rho < 1
     def basis(idx: list[int]): # tensor product basis of chebyshev polynomials for the radius coordinate and trigonometric polynomials for the angle coordinate. NB: as for trig_basis, to define up to a maximum degree (frequency) m, this must be called with n = 2m
-        return lambda x: chebshev_t(idx[0], (1 - 2 * x[0] + rho)/(rho - 1)) * sin_or_cos(idx[1], x[1])
+        return lambda x: chebshev_t(idx[0], np.clip((1 - 2 * x[0] + rho)/(rho - 1), -1, 1)) * sin_or_cos(idx[1], x[1]) # rescale and clamp between -1 and 1 to prevent domain error
     return basis
+
+def binom(n: int, k: int):
+    m = max(n - k, k)
+    return math.prod(i for i in range(m + 1, n + 1)) // math.prod(j for j in range(2, m + 1))
+
+def zernike_basis(idx: list[int]):
+    [n, m] = idx
+    # TODO: this shouldn't return 0 for n - m odd, there should be an index transformation
+    if (n - m) % 2 == 1:
+        return lambda _x: 0
+    def radial_part(rho):
+        return sum((-1)**k * binom(n - k, k) * binom(n - 2*k, (n - m)//2 - k) * rho**(n - 2*k) for k in range((n - m)//2 + 1))
+    if m % 2 == 0:
+        return lambda x: radial_part(x[0]) * math.cos(m * x[1])
+    return lambda x: radial_part(x[0]) * math.sin(m * x[1])
 
 def gen_cheb_points(n):
     return [math.cos(j * np.pi / n) for j in range(n + 1)]
 
-def even_part(f):
+def even_part_with_noise(f):
     return lambda x: (f(x) + f(-x)) / 2 + np.cos(x) * 1e-5 * random.random()
 
 def odd_part(f):
@@ -85,31 +102,46 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
     dim = len(domains) # number of dimensions
     mesh = np.meshgrid(*[np.linspace(domain[0], domain[1], math.ceil(math.pow(NUM_GRID_POINTS, 1/dim))) for domain in domains])
     grid_points = np.vstack([points.ravel() for points in mesh]).T # equally spaced grid points with the correct dimension
+    rand_unif_points = [[random.random() * (domain[1] - domain[0]) + domain[0] for domain in domains] for _ in range(num_sample_points)]
+    perturbation = 2/3 * np.pi
     points_dict = {
         # "cheb": list(itertools.product(*[gen_cheb_points(math.ceil(math.pow(num_sample_points, 1/dim))) for _ in range(dim)])), # Cartesian product of chebyshev points
         # "random_cheb": random.sample(gen_cheb_points(2 * num_sample_points), num_sample_points),
         # "eq_space": np.linspace(-1, 1, num_sample_points).tolist(),
-        "random_unif": [[random.random() * (domain[1] - domain[0]) + domain[0] for domain in domains] for _ in range(num_sample_points)]
+        "random_unif": rand_unif_points,
+        # "random_unif_rotated": [[x[0], x[1] + perturbation] for x in rand_unif_points]
     }
     for basis in bases:
         for (points_name, points) in points_dict.items():
             (approx, coeffs) = poly_approx(f, basis, points, max_degree, dimension=dim)
-            max_error = max(np.abs(approx(x) - f(*x)) for x in grid_points) # estimate of the max norm
-            print(f"estimated max error (basis: {basis.__name__}, points: {points_name}):", max_error)
+            max_error_point = grid_points[0]
+            max_error = 0 # estimate the max norm error
+            for x in grid_points:
+                error = np.abs(approx(x) - f(*x))
+                if error > max_error:
+                    max_error = error
+                    max_error_point = x
 
-            even_coeffs = coeffs[::2]
-            odd_coeffs = coeffs[1::2]
-            # plt.scatter(range(0, max_degree + 1, 2), even_coeffs, marker="o")
-            # plt.scatter(range(1, max_degree + 1, 2), odd_coeffs, marker="o")
-            # plt.show()
+            print(f"estimated max error (basis: {basis.__name__}, points: {points_name}):", max_error, "at point:", max_error_point.tolist())
+
             if dim == 1:
+                even_coeffs = coeffs[::2]
+                odd_coeffs = coeffs[1::2]
+                plt.scatter(range(0, max_degree + 1, 2), even_coeffs, marker="o")
+                plt.scatter(range(1, max_degree + 1, 2), odd_coeffs, marker="o")
+                plt.show()
                 plt.plot([x[0] for x in grid_points], [f(x[0]) for x in grid_points], color="blue")
                 plt.plot([x[0] for x in grid_points], [approx(x) for x in grid_points], color="red")
                 plt.show()
-            # plt.plot(np.linspace(-1, 1, 100), [f([x, 0]) for x in np.linspace(-1, 1, 100)], color="blue")
-            # plt.plot(np.linspace(-1, 1, 100), [approx([x, 0]) for x in np.linspace(-1, 1, 100)], color="red")
+            if dim == 2:
+                indices = max_degree_indices(max_degree, dim)
+                scatter_plot = plt.scatter([idx[0] for idx in indices], [idx[1] for idx in indices], c=np.log(np.abs(coeffs) + np.finfo(float).eps), cmap="jet", s=80, alpha=1)
+                plt.xlabel("radial basis degree")
+                plt.ylabel("angle basis degree")
+                plt.colorbar(scatter_plot, label="Log of absolute value of estimated coefficient")
+                plt.show()
 
-rho = 0
+rho = 1/100000
 
 def f(x):
     return math.sin(x) + 1/4 * math.cos(20 * x)
@@ -118,22 +150,22 @@ def g(x, y):
     return x**2 + y**3 - 2*x*y - x**4 * y**3 + x**2 * y**5
 
 def h(r, theta):
-    return math.sin(theta)**3 / (1 + r**2)
+    return math.cos(3*theta)**3 + math.cos(12*theta)**4 + math.sin(6*theta)
 
 # [-1, 1] cheb basis
-analysis(f, domains=[(-1, 1)], bases=[cheb_basis], max_degree=40, num_sample_points=100)
+# analysis(f, domains=[(-1, 1)], bases=[cheb_basis], max_degree=40, num_sample_points=100)
 
-# [rho, 1] scaled cheb basis
-analysis(f, domains=[(rho, 1)], bases=[cheb_basis_scaled(rho)], max_degree=20, num_sample_points=100)
+# # [rho, 1] scaled cheb basis
+# analysis(f, domains=[(rho, 1)], bases=[cheb_basis_scaled(rho)], max_degree=20, num_sample_points=100)
 
-# [0, 2pi] trig basis
-analysis(f, domains=[(0, np.pi)], bases=[trig_basis], max_degree=40*2, num_sample_points=100)
+# # [0, 2pi] trig basis
+# analysis(f, domains=[(0, np.pi)], bases=[trig_basis], max_degree=40*2, num_sample_points=100)
 
-# [-1, 1]^2 (unit square) cheb tensor product basis
-analysis(g, domains=[(-1, 1), (-1, 1)], bases=[cheb_basis], max_degree=20, num_sample_points=500)
+# # [-1, 1]^2 (unit square) cheb tensor product basis
+# analysis(g, domains=[(-1, 1), (-1, 1)], bases=[cheb_basis], max_degree=20, num_sample_points=500)
 
 # tensor product of chebyshev basis (for radius) and trig basis (for angle)
-analysis(h, domains=[(rho, 1), (0, 2 * np.pi)], bases=[annulus_basis(rho)], max_degree=10*2, num_sample_points=500)
+# analysis(h, domains=[(rho, 1), (0, 2 * np.pi)], bases=[annulus_basis(rho)], max_degree=25, num_sample_points=2000)
 
 def non_smooth_1(x):
     return max(math.sin(x), math.sin(2 * x), math.cos(x))
@@ -141,13 +173,16 @@ def non_smooth_1(x):
 def non_smooth_2(x):
     return 1/4 * (abs(x - 1/2) - abs(x) + abs(x - 0.8))
 
+def f2(r, theta): # rotation invariant
+    return 
+
 # non-smooth function approximated with chebyshev basis
-# analysis(non_smooth_1, domains=[(-1, 1)], bases=[cheb_basis], max_degree=100, num_sample_points=1000)
+analysis(non_smooth_1, domains=[(-1, 1)], bases=[cheb_basis], max_degree=20, num_sample_points=500)
 
 # non-smooth function approximated with chebyshev basis
 # analysis(non_smooth_2, domains=[(-1, 1)], bases=[cheb_basis], max_degree=100, num_sample_points=1000)
 
-# progression: 1d [rho, 1] poly approx, 1d 2pi periodic trig polynomial approx, 2d square, annulus
 # read up on condition number
 # look up literature on deconvolution/polynomial division, why it's numerically unstable
 # think about how to smooth out stacks of 1d surfaces (e.g. flippping the top surface, smooth out from remaining cusp)
+# reading: ch 13 book, ch 3 and 4 book, ch 7 and 8 book
