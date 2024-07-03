@@ -153,15 +153,6 @@ def reconstruct(a: float, b: float, sample_size: int, curves, interpolant_degree
         modified_indices = []
         for i, (x, y) in enumerate(zip(x_values, sorted_curves[len(y_values) - 2, :])):
             if c <= x and x <= b and (x <= 1.25 or x >= 1.75):
-                # if x - c < 1e-2:
-                #     for _ in range(5):
-                #         x_sample.append(x)
-                #         y_sample.append(y)
-                # n = 50
-                # k = ((2*n + 1)/math.pi * math.acos(2/(b - c)*(x - (b + c)/2)) - 1) / 2
-                # # x_sample.append(x)
-                # # y_sample.append(y)
-                # if random.random() < 2*abs(k - n/2)/n:
                 x_sample.append(x)
                 y_sample.append(y)
                 modified_indices.append(i)
