@@ -38,3 +38,5 @@ def two_annulus_basis(rho: float):
     def basis(idx: list[int]):
         return lambda x: annulus_basis(rho)(idx[0:2])([x[0], x[1]]) * annulus_basis(rho)(idx[2:4])([x[2], x[3]])
     return basis
+
+# 0.04169609128696898

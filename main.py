@@ -44,7 +44,7 @@ def f3(r, theta):
 ## Tensor product of two annuli ##
 
 def f4(r1, theta1, r2, theta2):
-    return r1 + r2 + math.sin(theta1 - theta2)
+    return r1 + r2 * math.sin(theta1 - theta2) + r1 * math.cos(6 * (theta1 - theta2))
 
 random_perturbation = np.random.random() * np.pi
 analysis(

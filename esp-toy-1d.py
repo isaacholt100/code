@@ -3,21 +3,36 @@ import matplotlib.pyplot as plt
 from scipy.linalg import companion
 import math
 import random
+from numpy.polynomial.chebyshev import chebfit as polyfit
+from numpy.polynomial.chebyshev import chebval as polyval
 
 np.random.seed(42) # make things reproducible
 
-# Convenience function to construct intersecting sinusoidal stack described in the paper
 def intersecting_cosine_curves_1(x):
-    y1 = np.sin(x)
-    y2 = np.cos(2*x)
-    y3 = np.sin(2*x)
-    y4 = 1/3+np.cos(2*x/3)
-    return [y1, y2, y3, y4]
+    y1 = math.sin(x)
+    y2 = math.cos(2*x)
+    y3 = math.sin(2*x)
+    y4 = 1/3 + math.cos(2*x/3)
+    return np.array(sorted([y1, y2, y3, y4])[0:3])
+
+def gap_weighted_error(surface, approximation):
+    def delta(s, i: int, j: int):
+        return s[i] - s[j]
+    epsilon_w = 5e-2
+    max_error = 0
+    for i in range(len(approximation)):
+        for j in range(len(approximation)):
+            if i == j:
+                continue
+            m = max(abs(delta(approximation, i, j) - delta(surface, i, j))/(epsilon_w + abs(delta(surface, i, j))))
+            if m > max_error:
+                max_error = m
+    return max_error
 
 def estimate_coeffs(design_matrix, values) -> list[float]:
     X = design_matrix
-    beta = np.linalg.inv(X.T @ X) @ X.T @ values # formula from minimising the least-squares error
-    return beta.flatten().tolist()[0]
+    beta = np.linalg.lstsq(X, values, rcond=None)
+    return beta[0].tolist()
 
 def points_approx(basis, sample_points: list, values: list[float], max_degree: int):
     indices = range(max_degree + 1)
@@ -51,15 +66,19 @@ def esp_indices(max: int, length: int) -> list[list[int]]:
 
 def esp(n: int, r: int):
     def fn(x: list[float]):
+        assert len(x) == n
         if r > n:
-            return 0
+            return 0.0
         if r == 0:
-            return 1
-        s = 0
+            return 1.0
+        s = 0.0
         for idx in esp_indices(n, r):
             s += math.prod(x[i] for i in idx)
         return s
     return fn
+
+# print(esp(4, 2)([1, 2, 3, 4]))
+# exit(0)
 
 def chebyshev_sample(n: int, points: list[float], a, b):
     x_sample = []
@@ -73,14 +92,17 @@ def chebyshev_sample(n: int, points: list[float], a, b):
     return x_sample
 
 def esp_derivs():
-    delta_x = 1e-6
-    delta = 0.1
+    delta_x = 1e-4
+    delta = 0# 0.1
     b = 2
-    matched_cusp_points = [0.38, 1.05]
-    c = matched_cusp_points[1] + delta/2
-    d = c# + delta/2
-    x_values = np.linspace(0, 2, round((2 - 0)/delta_x))
-    y_values = np.partition(np.vstack(intersecting_cosine_curves_1(x_values)), [0, 1, 2, 3], axis=0)
+    matched_cusp_points = [0.38, np.pi/3]
+    c = matched_cusp_points[1]
+    d = c
+    x_values = [0.0]
+    while x_values[-1] <= 2 - delta_x:
+        x_values.append(x_values[-1] + delta_x)
+    x_values = np.array(x_values)
+    y_values = intersecting_cosine_curves_1(x_values)
 
     x_sample = []
     y_sample = []
@@ -100,6 +122,7 @@ def esp_derivs():
             y_sample.append(y)
             modified_indices.append(i)
     (approx, _, _) = points_approx(cheb_basis_shifted(c, b), [*x_sample], [*y_sample], max_degree=8)
+    ## TODO: try adding derivative condition
     x_modified = x_values[modified_indices[0]:modified_indices[-1] + 1]
     y_modified = [approx(x) for x in x_modified]
     for i in range(modified_indices[0], modified_indices[-1] + 1):
@@ -107,6 +130,24 @@ def esp_derivs():
             # break
             y_values[2, i] = y_modified[i - modified_indices[0]]
     
+    # i = 0
+    # while True:
+    #     if i >= len(x_values):
+    #         break
+    #     x = x_values[i]
+    #     epsilon = 0.05
+    #     if c - epsilon <= x and x <= c + epsilon:
+    #         # i += 1; continue
+    #         x_values = np.delete(x_values, i)
+    #         y_values = np.delete(y_values, i, axis=1)
+    #     i += 1
+    # x_values_2 = np.linspace(0.95, 2, round(0.2 / delta_x))
+    # y_values_2 = np.array([sorted(intersecting_cosine_curves_1(x))[2] for x in x_values_2])
+    plt.plot(x_values, y_values[2, :])
+    plt.show()
+    derivs = (y_values[2, 1:] - y_values[2, 0:-1]) / delta_x
+    plt.plot(x_values[0:-1], derivs)
+    plt.show()
     # unsorted = 
     sum_curve = y_values[0, :] + y_values[1, :] + y_values[2, :]
     mixed_curve = y_values[0, :] * y_values[1, :] + y_values[0, :] * y_values[2, :] + y_values[1, :] * y_values[2, :]
@@ -118,12 +159,15 @@ def esp_derivs():
     derivs1 = (sum_curve[1:] - sum_curve[0:-1]) / delta_x
     derivs2 = (mixed_curve[1:] - mixed_curve[0:-1]) / delta_x
     derivs3 = (product_curve[1:] - product_curve[0:-1]) / delta_x
+    for i, d in enumerate(derivs1):
+        if abs(d) > 10:
+            print("large deriv between:", sum_curve[i+1] - sum_curve[i], "at index", i)
     plt.plot(x_values[0:-1], derivs1)
     plt.plot(x_values[0:-1], derivs2)
     plt.plot(x_values[0:-1], derivs3)
     plt.show()
 
-esp_derivs()
+# esp_derivs()
 # exit(0)
 # a = -1
 # b = 1
@@ -137,21 +181,19 @@ esp_derivs()
 # exit(0)
 
 # Generate x values
-def reconstruct(a: float, b: float, sample_size: int, curves, interpolant_degree: int, smoothing_degree: int):
-    x_values = np.sort(np.random.uniform(a, b, sample_size))  # uniformly distributed random samples
-    y_values = curves(x_values)
-    sorted_curves = np.partition(np.vstack(y_values), list(range(len(y_values))), axis=0)
+def reconstruct(a: float, b: float, sample_size: int, curves, interpolant_degree: int, smoothing_degree: int, delta_p: float, matched_cusp_points: list[float], removal_epsilon: float):
+    x_values = np.sort(np.random.uniform(a, b, sample_size)) # uniformly distributed random samples
+    sorted_curves = np.array([curves(x) for x in x_values]).T
 
-    if smoothing_degree > 0:
+    if smoothing_degree > 0: # if smoothing degree is 0, do not attempt to smooth out the unmatched cusp
         delta = 0.2
-        matched_cusp_points = [0.38, 1.05]
-        c = matched_cusp_points[1] + delta/2
-        d = c + delta
+        c = np.pi/3
+        d = c + 0.1
 
         x_sample = []
         y_sample = []
         modified_indices = []
-        for i, (x, y) in enumerate(zip(x_values, sorted_curves[len(y_values) - 2, :])):
+        for i, (x, y) in enumerate(zip(x_values, sorted_curves[-1, :])):
             if c <= x and x <= b and (x <= 1.25 or x >= 1.75):
                 x_sample.append(x)
                 y_sample.append(y)
@@ -160,51 +202,110 @@ def reconstruct(a: float, b: float, sample_size: int, curves, interpolant_degree
         x_modified = x_values[modified_indices[0]:modified_indices[-1] + 1]
         y_modified = [approx(x) for x in x_modified]
         for i in range(modified_indices[0], modified_indices[-1] + 1):
-            epsilon = 5e-1
-            if c - epsilon <= x and x <= c + epsilon:
-                np.delete(x_values, i)
-                np.delete(sorted_curves, i, axis=1)
-            elif d <= x:
+            if d <= x:
                 # break
-                sorted_curves[len(y_values) - 2, i] = y_modified[i - modified_indices[0]]
-        # plt.plot(x_values, sorted_curves[len(y_values) - 2, :])
+                sorted_curves[-1, i] = y_modified[i - modified_indices[0]]
 
-    esps = [esp(len(y_values) - 1, r) for r in range(1, len(y_values))]
+        if removal_epsilon > 0: # if removal epsilon is 0, do not remove points around where we start approximating
+            # remove points near where we start approximating the curve
+            i = 0
+            while True:
+                if i >= len(x_values):
+                    break
+                x = x_values[i]
+                epsilon = 0.05
+                if c - epsilon <= x and x <= c + epsilon:
+                    x_values = np.delete(x_values, i)
+                    sorted_curves = np.delete(sorted_curves, i, axis=1)
+                i += 1
 
-    
+    # esps = [esp(len(sorted_curves), r) for r in range(1, len(sorted_curves) + 1)]
+    # esp_curves = [[esp(sorted_curves[:, i].tolist()) for i in range(len(x_values))] for esp in esps]
 
+    # interpolated_curves = [polyval(x_values, polyfit(x_values, esp_curve, interpolant_degree)) for esp_curve in esp_curves] # The interpolated things are stand-ins for what a ML model would in practice give us
+    # plt.plot(x_values, interpolated_curves[0])
+    # plt.plot(x_values, interpolated_curves[1])
+    # plt.plot(x_values, interpolated_curves[2])
+    # plt.title("ESPs")
+    # plt.show()
+
+    # points = []
+    # for i, values in enumerate(zip(*interpolated_curves)):
+    #     companion_column = [1] + [(-1)**(j + 1) * values[j] for j in range(len(values))]
+    #     matrix = companion(companion_column) # scipy's Frobenius companion matrix implementation for simplicity
+    #     roots = np.sort(np.linalg.eigvals(matrix))
+    #     points.append(roots)
+
+    # points = np.array(points).T
+
+    away_from_cusp_indices = []
+    near_cusp_indices = []
+    for i in range(len(x_values)):
+        near = False
+        for p in matched_cusp_points:
+            if abs(x_values[i] - p) < delta_p:
+                near_cusp_indices.append(i)
+                near = True
+                break
+        if not near:
+            away_from_cusp_indices.append(i)
+    assert set(away_from_cusp_indices).union(set(near_cusp_indices)) == set(range(len(x_values)))
+    esps_away = [esp(len(sorted_curves) - 1, r) for r in range(1, len(sorted_curves))]
+    esps_near = [esp(len(sorted_curves), r) for r in range(1, len(sorted_curves) + 1)]
+    x_values_away = [x_values[i] for i in away_from_cusp_indices]
+    x_values_near = [x_values[i] for i in near_cusp_indices]
     # Compute the ESPs
-    esp_curves = [[esps[j](sorted_curves[:, i].tolist()) for i in range(len(x_values))] for j in range(len(y_values) - 1)]
+    esp_away_curves = [[esps_away[j](sorted_curves[0:-1, i].tolist()) for i in away_from_cusp_indices] for j in range(len(sorted_curves) - 1)]
+    esp_near_curves = [[esps_near[j](sorted_curves[:, i].tolist()) for i in near_cusp_indices] for j in range(len(sorted_curves))]
 
-    from numpy.polynomial.chebyshev import chebfit as polyfit
-    from numpy.polynomial.chebyshev import chebval as polyval
+    interpolated_curves_away = [polyval(x_values_away, polyfit(x_values_away, esp_curve, interpolant_degree)) for esp_curve in esp_away_curves] if len(x_values_away) > 0 else [] # The interpolated things are stand-ins for what a ML model would in practice give us
+    interpolated_curves_near = [polyval(x_values_near, polyfit(x_values_near, esp_curve, interpolant_degree)) for esp_curve in esp_near_curves] if len(x_values_near) > 0 else [] # The interpolated things are stand-ins for what a ML model would in practice give us
 
-    interpolated_curves = [polyval(x_values, polyfit(x_values, esp_curve, interpolant_degree)) for esp_curve in esp_curves] # The interpolated things are stand-ins for what a ML model would in practice give us
-
-    points = [] # We could pre-allocate since the dimensions are known but for small problems efficiency isn't really a concern
-    for i, values in enumerate(zip(*interpolated_curves)):
-        companion_column = [1]
-        for i in range(len(values)):
-            companion_column.append((-1)**(i + 1) * values[i])
+    points = [None] * len(x_values) # We could pre-allocate since the dimensions are known but for small problems efficiency isn't really a concern
+    for i, values in enumerate(zip(*interpolated_curves_away)):
+        companion_column = [1] + [(-1)**(j + 1) * values[j] for j in range(len(values))]
         matrix = companion(companion_column) # scipy's Frobenius companion matrix implementation for simplicity
         roots = np.sort(np.linalg.eigvals(matrix))
-        points.append(roots)
+        idx = away_from_cusp_indices[i]
+        points[idx] = [*roots, math.nan]
+    for i, values in enumerate(zip(*interpolated_curves_near)):
+        companion_column = [1] + [(-1)**(j + 1) * values[j] for j in range(len(values))]
+        matrix = companion(companion_column) # scipy's Frobenius companion matrix implementation for simplicity
+        roots = np.sort(np.linalg.eigvals(matrix))
+        idx = near_cusp_indices[i]
+        points[idx] = roots
 
     points = np.array(points).T
 
-    max_abs_errors = [max(abs(points[j, i] - sorted_curves[j, i]) for i in range(len(x_values))) for j in range(len(y_values) - 2)]
+    max_abs_errors = [max(abs(points[j, i] - sorted_curves[j, i]) for i in range(len(x_values))) for j in range(len(sorted_curves) - 1)]
 
     return x_values, sorted_curves, points, max_abs_errors
 
-x_values, sorted_curves, points, max_abs_errors = reconstruct(a=0, b=2, sample_size=4000, curves=intersecting_cosine_curves_1, interpolant_degree=20, smoothing_degree=8)
-# Make the default color wheel accessible
-prop_cycle = plt.rcParams['axes.prop_cycle']
-colors = prop_cycle.by_key()['color']
+def plot_delta_p():
+    delta_p_values = np.linspace(0.1, 0.3, 100)
+    max_abs_errors, gap_weighted_errors = [], []
+    for delta_p in delta_p_values:
+        _, sorted_curves, points, e = reconstruct(a=0, b=2, sample_size=4000, curves=intersecting_cosine_curves_1, interpolant_degree=20, smoothing_degree=0, delta_p=delta_p, matched_cusp_points=[np.pi/8, np.pi/6, np.pi/3, np.pi*5/8], removal_epsilon=0.05)
+        max_abs_errors.append(sum(e))
+        gap_weighted_errors.append(gap_weighted_error(sorted_curves, points))
+
+    plt.plot(delta_p_values, max_abs_errors)
+    plt.ylabel("max abs error")
+    plt.xlabel("delta_p")
+    plt.show()
+    plt.plot(delta_p_values, gap_weighted_errors)
+    plt.ylabel("gap weighted error")
+    plt.xlabel("delta_p")
+    plt.show()
+# plot_delta_p()
+
+x_values, sorted_curves, points, max_abs_errors = reconstruct(a=0, b=2, sample_size=4000, curves=intersecting_cosine_curves_1, interpolant_degree=20, smoothing_degree=8, delta_p=0.2883, matched_cusp_points=[np.pi/8, np.pi/6, np.pi/3, np.pi*5/8], removal_epsilon=0.05)
+# 0.35633, 0.35755, 0.35899
 
 plt.figure(0)
-plt.plot(x_values, sorted_curves[0, :], color=colors[0])
-plt.plot(x_values, sorted_curves[1, :], color=colors[1])
-plt.plot(x_values, sorted_curves[2, :], color=colors[2])
+plt.plot(x_values, sorted_curves[0, :])
+plt.plot(x_values, sorted_curves[1, :])
+plt.plot(x_values, sorted_curves[2, :])
 # plt.plot(x_values, sorted_curves[3, :], color=colors[3], linewidth=4) # optionally plot the missing fourth stack
 plt.title("Original multi-surface data")
 plt.xlabel('x')
@@ -212,53 +313,32 @@ plt.ylabel('f(x)')
 plt.show()
 
 plt.figure(1)
-plt.plot(x_values, points[0, :], color=colors[0])
-plt.plot(x_values, points[1, :], color=colors[1])
-plt.plot(x_values, points[2, :], color=colors[2])
+plt.plot(x_values, points[0, :])
+plt.plot(x_values, points[1, :])
+plt.plot(x_values, points[2, :])
 plt.title("ESP-reconstructed multi-surface")
 plt.xlabel('x')
 plt.ylabel('f(x)')
 plt.show()
 
-errors0 = np.abs(points[0, :] - sorted_curves[0, :])
-errors1 = np.abs(points[1, :] - sorted_curves[1, :])
-plt.plot(x_values, np.log10(errors0))
-plt.plot(x_values, np.log10(errors1))
-plt.show()
+# errors0 = np.abs(points[0, :] - sorted_curves[0, :])
+# errors1 = np.abs(points[1, :] - sorted_curves[1, :])
+# plt.plot(x_values, np.log10(errors0))
+# plt.plot(x_values, np.log10(errors1))
+# plt.show()
 
 print("sum max abs error:", sum(max_abs_errors))
-interpolant_degree = 20
-_, _, _, errors_without_smoothing = reconstruct(a=0, b=2, sample_size=4000, curves=intersecting_cosine_curves_1, interpolant_degree=interpolant_degree, smoothing_degree=0)
-min_error, min_error_degree = sum(errors_without_smoothing), 0
-for j in range(4, 15):
-    _, _, _, max_abs_errors = reconstruct(a=0, b=2, sample_size=4000, curves=intersecting_cosine_curves_1, interpolant_degree=interpolant_degree, smoothing_degree=j)
-    e = sum(max_abs_errors)
-    if e < min_error:
-        min_error_degrees = j
-        min_error = e
-
-print("error without smoothing:", math.log(sum(errors_without_smoothing)), sum(errors_without_smoothing))
-print("min error and associated degree:", math.log(min_error), min_error, min_error_degrees)
-
+print("gap weighted error:", gap_weighted_error(sorted_curves, points))
 exit(0)
-points = []
-errors = []
-min_error, min_error_degrees = sum(errors_without_smoothing), (0, 0)
-for i in range(10, 50, 2):
-    for j in [0, *range(4, 25)]:
-        points.append((i, j))
-        _, _, _, max_abs_errors = reconstruct(a=0, b=2, sample_size=4000, curves=intersecting_cosine_curves_1, interpolant_degree=i, smoothing_degree=j)
-        e = sum(max_abs_errors)
-        if e < min_error:
-            min_error_degrees = (i, j)
-            min_error = e
-        errors.append(math.log(e))
+# interpolant_degree = 20
+# _, _, _, errors_without_smoothing = reconstruct(a=0, b=2, sample_size=4000, curves=intersecting_cosine_curves_1, interpolant_degree=interpolant_degree, smoothing_degree=0)
+# min_error, min_error_degree = sum(errors_without_smoothing), 0
+# for j in range(4, 15):
+#     _, _, _, max_abs_errors = reconstruct(a=0, b=2, sample_size=4000, curves=intersecting_cosine_curves_1, interpolant_degree=interpolant_degree, smoothing_degree=j)
+#     e = sum(max_abs_errors)
+#     if e < min_error:
+#         min_error_degrees = j
+#         min_error = e
 
-scatter_plot = plt.scatter(*list(zip(*points)), c=errors, cmap="viridis")
-plt.xlabel("esp interpolant degree")
-plt.ylabel("smoothing degree")
-plt.colorbar(scatter_plot, label="log sum max abs error")
-plt.show()
-print("min error and associated degrees:", min_error, min_error_degrees)
-
-# TODO: IDEA: use Hermite interpolation/just look at derivative around matched cusp point, construct polynomial which matches this derivative (and ofc matches the values at the matched cusp points
+# print("error without smoothing:", math.log(sum(errors_without_smoothing)), sum(errors_without_smoothing))
+# print("min error and associated degree:", math.log(min_error), min_error, min_error_degrees)
