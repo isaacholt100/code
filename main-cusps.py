@@ -54,7 +54,7 @@ def plot_params():
     plt.show()
 # plot_params()
 
-x_values, original_surfaces, reconstructed_surfaces = reconstruct_enhanced(0, 2, samples, original_surfaces=np.array([intersecting_cosine_curves_1(x) for x in samples]).T, interpolant_degree=20, smoothing_degree=0, delta_p=0.272, removal_epsilon=0.000, smoothing_sample_range=0.1, approx_basis=cheb_basis_shifted(0, 2), dimension=1, matched_cusp_point_search_tolerance=0.1)
+x_values, original_surfaces, reconstructed_surfaces = reconstruct_enhanced(0, 2, samples, original_surfaces=np.array([intersecting_cosine_curves_1(x) for x in samples]).T, interpolant_degree=20, smoothing_degree=0, delta_p=0.274, removal_epsilon=0.000, smoothing_sample_range=0.1, approx_basis=cheb_basis_shifted(0, 2), dimension=1, matched_cusp_point_search_tolerance=0.1)
 plot_reconstruction(x_values, original_surfaces, reconstructed_surfaces, name="Enhanced")
 
 print("sum max abs error:", sum_max_abs_error(original_surfaces, reconstructed_surfaces))

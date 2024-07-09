@@ -61,8 +61,8 @@ def reconstruct_roots(values):
     return roots
 
 def estimate_matched_cusp_point(close_points): # given a set of sample points at which surfaces are close (potential matched cusp point candidates), estimate a representative for this set of points. weight by closeness
-    # return min(close_points, key=lambda x: x[1])[0]
-    return sum(point for (point, dist) in close_points) / len(close_points) # TODO: need to adjust for higher dimensional points
+    return min(close_points, key=lambda x: x[1])[0]
+    # return sum(point for (point, dist) in close_points) / len(close_points)
 
 # TODO: write code for finding ubnmatched cusps using derivaives, adjust code for smoothing only there
 def find_matched_cusp_points(sample_points, original_surfaces, interpolant_degree: int, tolerance: float, approx_basis, dimension: int):
@@ -144,7 +144,7 @@ def reconstruct_enhanced(a: float, b: float, sample_points, original_surfaces, i
             y_modified = [approx(x) for x in x_modified]
             for i in range(modified_indices[0], modified_indices[-1] + 1):
                 original_surfaces[-1, i] = y_modified[i - modified_indices[0]]
-    if removal_epsilon > 0: # if removal epsilon is 0, do not remove points around where we start and (TODO: MAYBE?) end approximating
+    if removal_epsilon > 0: # if removal epsilon is 0, do not remove points around where we approximate
         i = 0
         while True:
             if i >= len(sample_points):
@@ -157,6 +157,8 @@ def reconstruct_enhanced(a: float, b: float, sample_points, original_surfaces, i
                     continue
             i += 1
 
+
+    delta_q = delta_p + 0.01 # TODO: make this a parameter
     r = 1 # controls how much of a plateau at 1 we have. smaller r means a narrower plateau
     midpoints = [a] # TODO: rewrite for arbitrary dimensions
     for i in range(len(matched_cusp_points) - 1):
@@ -169,23 +171,27 @@ def reconstruct_enhanced(a: float, b: float, sample_points, original_surfaces, i
     indices_full = []
     indices_bottom = []
     for i in range(len(sample_points)):
-        near = False
-        if all(np.linalg.norm(sample_points[i] - p) >= delta_p for p in matched_cusp_points):
+        if all(np.linalg.norm(sample_points[i] - p) >= delta_q for p in matched_cusp_points):
             indices_bottom.append(i)
-        full_index = True
-        x = sample_points[i]
-        for j in range(len(matched_cusp_points)):
-            A = midpoints[j]
-            C = matched_cusp_points[j] - delta_p
-            B = (1 - r) * A + r*C
-            D = matched_cusp_points[j] + delta_p
-            F = midpoints[j + 1]
-            E = (1 - r)*F + r*D
-            if (A <= x and x <= B) or (E <= x and x <= F):
-                full_index = False
-                break
-        if full_index:
+        if any(np.linalg.norm(sample_points[i] - p) <= delta_p for p in matched_cusp_points):
             indices_full.append(i)
+        near = False
+        # if all(np.linalg.norm(sample_points[i] - p) >= delta_p for p in matched_cusp_points):
+        #     indices_bottom.append(i)
+        # full_index = True
+        # x = sample_points[i]
+        # for j in range(len(matched_cusp_points)):
+        #     A = midpoints[j]
+        #     C = matched_cusp_points[j] - delta_p
+        #     B = (1 - r) * A + r*C
+        #     D = matched_cusp_points[j] + delta_p
+        #     F = midpoints[j + 1]
+        #     E = (1 - r)*F + r*D
+        #     if (A <= x and x <= B) or (E <= x and x <= F):
+        #         full_index = False
+        #         break
+        # if full_index:
+        #     indices_full.append(i)
 
         for p in matched_cusp_points:
             if np.linalg.norm(sample_points[i] - p) < delta_p:
@@ -200,8 +206,6 @@ def reconstruct_enhanced(a: float, b: float, sample_points, original_surfaces, i
     # plt.scatter(indices_full, [0] * len(indices_full))
     # plt.scatter(indices_bottom, [1] * len(indices_bottom))
     # plt.show()
-
-    delta_q = delta_p + 0.01
     def single_cusp_sigmoid(cusp, x):
         norm = np.linalg.norm(x - cusp)
         if norm >= delta_q:
