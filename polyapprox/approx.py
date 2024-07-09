@@ -30,3 +30,4 @@ def max_degree_indices(max_degree: int, dimension: int) -> list[list[int]]: # li
         for i in range(max_degree + 1 - s):
             indices.append([*lower_index.copy(), i])
     return indices
+

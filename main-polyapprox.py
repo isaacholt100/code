@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from polyapprox.bases import annulus_basis, symmetric_annulus_basis, two_annulus_basis
+from polyapprox.bases import annulus_basis, cheb_basis, symmetric_annulus_basis, trig_basis, two_annulus_basis
 from polyapprox.analyses import max_mean_error_analysis, analysis
 
 rho = 1/100000
@@ -19,8 +19,11 @@ def f1(x):
 
 ## 1D Trig ##
 
+def g2(theta):
+    return math.cos(6*theta) + math.sin(6*theta) + math.cos(12*theta)
+
 # [0, 2pi] trig basis
-# analysis(f1, domains=[(0, np.pi)], bases=[trig_basis], max_degree=40*2, num_sample_points=100)
+# analysis(g2, domains=[(0, 2*np.pi)], bases=[trig_basis], max_degree=20, num_sample_points=1000)
 
 
 ## Square ##
@@ -35,26 +38,36 @@ def f2(x, y):
 ## Annulus ##
 
 def f3(r, theta):
-    return math.cos(3*theta) * (r**3 - r**2) + r**6 - 2*r + math.cos(12*theta) + math.sin(6*theta) / (1 + r**2)
+    return math.cos(3*theta) + math.cos(6*theta) * (r**3 - r**2) + r**6 - 2*r + math.cos(12*theta) + math.sin(6*theta) / (1 + r**2)
 
 # tensor product of chebyshev basis (for radius) and trig basis (for angle)
-# analysis(f3, domains=[(rho, 1), (0, 2 * np.pi)], bases=[annulus_basis(rho), symmetric_annulus_basis(rho)], max_degree=20, num_sample_points=1000)
+# analysis(f3, domains=[(rho, 1), (0, 2 * np.pi)], bases=[annulus_basis(rho)], max_degree=23, num_sample_points=300)
 
+## 2D Trig ##
+
+def g(theta1, theta2):
+    return math.sin(theta1 - theta2) + math.cos(2*(theta1 - theta2)) + math.sin(5*(theta1 - theta2)) + math.sin(6*(theta1 - theta2))
+
+
+# tensor product of trig bases
+analysis(g, domains=[(0, 2 * np.pi), (0, 2 * np.pi)], bases=[trig_basis], max_degree=22, num_sample_points=1000)
 
 ## Tensor product of two annuli ##
 
 def f4(r1, theta1, r2, theta2):
     return r1 + r2 * math.sin(theta1 - theta2) + r1 * math.cos((theta1 - theta2))
 
+# np.random.seed(42)
+
 random_perturbation = np.random.random() * np.pi
-analysis(
-    f4,
-    domains=[(rho, 1), (0, 2 * np.pi), (rho, 1), (0, np.pi)],
-    bases=[two_annulus_basis(rho)],
-    max_degree=10,
-    num_sample_points=1600,
-    perturbation = lambda x: [x[0], x[1] + random_perturbation, x[2], x[3] + random_perturbation]
-)
+# analysis(
+#     f4,
+#     domains=[(rho, 1), (0, 2 * np.pi), (rho, 1), (0, 2*np.pi)],
+#     bases=[two_annulus_basis(rho)],
+#     max_degree=10,
+#     num_sample_points=1600,
+#     perturbation = lambda x: [x[0], x[1] + random_perturbation, x[2], x[3] + random_perturbation]
+# )
 
 # read up on economisation
 
@@ -78,7 +91,3 @@ def test_fn_1(epsilon: float):
 # look up literature on deconvolution/polynomial division, why it's numerically unstable
 # think about how to smooth out stacks of 1d surfaces (e.g. flippping the top surface, smooth out from remaining cusp)
 # reading: ch 13 book, ch 3 and 4 book, ch 7 and 8 book
-
-# TODO: plot max and mean errors of coeffs (coeffs from original sample versus coeffs from rotated) as epsilon varies from 1e-10 to 1
-# TODO: define another annulus basis that only includes 2pi/3 rotation invariant sin/cos basis functions, so e.g. 1 -> sin(3x), 2 -> cos(3x), 3 -> sin(6x). with same degree of freedom, and same random samples, which is more accurate? can then compare non-symmetric basis and one with rotated points with invariant basis
-# TODO: next do tensor product of two annuli

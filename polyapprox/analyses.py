@@ -22,6 +22,15 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
     mesh = np.meshgrid(*[np.linspace(domain[0], domain[1], math.ceil(math.pow(NUM_GRID_POINTS, 1/dim))) for domain in domains])
     grid_points = np.vstack([points.ravel() for points in mesh]).T # equally spaced grid points with the correct dimension
     rand_unif_points = [[random.random() * (domain[1] - domain[0]) + domain[0] for domain in domains] for _ in range(num_sample_points)]
+    for i in range(len(rand_unif_points)):
+        if random.random() < 1:
+            point = rand_unif_points[i]
+            for i in range(10): # TODO: plot error against number of random rotations, also do this for the discrete
+                r1 = random.random() * 2 * np.pi
+                rand_unif_points.append([point[0] + r1, point[1] + r1])
+            for i in range(5):
+                r2 = 2 * i * np.pi/5
+                rand_unif_points.append([point[0] + r2, point[1] + r2])
     points_dict = {
         # "cheb": list(itertools.product(*[gen_cheb_points(math.ceil(math.pow(num_sample_points, 1/dim))) for _ in range(dim)])), # Cartesian product of chebyshev points
         # "random_cheb": random.sample(gen_cheb_points(2 * num_sample_points), num_sample_points),
@@ -29,7 +38,7 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
         "random_unif": rand_unif_points,
     }
     if perturbation is not None:
-        points_dict["random_unif_rotated"] = [perturbation(x) for x in rand_unif_points]
+        points_dict["random_unif_perturbed"] = [perturbation(x) for x in rand_unif_points]
     prev_X = None
     prev_coeffs = None
     for basis in bases:
@@ -54,19 +63,16 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
             print(f"estimated max error (basis: {basis.__name__}, points: {points_name}):", max_error, "at point:", max_error_point.tolist())
 
             if dim == 1:
-                even_coeffs = coeffs[::2]
-                odd_coeffs = coeffs[1::2]
-                plt.scatter(range(0, max_degree + 1, 2), even_coeffs, marker="o")
-                plt.scatter(range(1, max_degree + 1, 2), odd_coeffs, marker="o")
-                plt.show()
-                plt.plot([x[0] for x in grid_points], [f(x[0]) for x in grid_points], color="blue")
-                plt.plot([x[0] for x in grid_points], [approx(x) for x in grid_points], color="red")
+                indices = max_degree_indices(max_degree, dim)
+                scatter_plot = plt.scatter([idx[0] for idx in indices], [0] * len(indices), c=np.log10(np.abs(coeffs) + np.finfo(float).eps), cmap="viridis", s=80, alpha=1)
+                plt.xlabel("basis degree")
+                plt.colorbar(scatter_plot, label="Log of absolute value of estimated coefficient")
                 plt.show()
             if dim == 2:
                 indices = max_degree_indices(max_degree, dim)
-                scatter_plot = plt.scatter([idx[0] for idx in indices], [idx[1] for idx in indices], c=np.log(np.abs(coeffs) + np.finfo(float).eps), cmap="viridis", s=80, alpha=1)
-                plt.xlabel("radial basis degree")
-                plt.ylabel("angle basis degree")
+                scatter_plot = plt.scatter([idx[0] for idx in indices], [idx[1] for idx in indices], c=np.log10(np.abs(coeffs) + np.finfo(float).eps), cmap="viridis", s=80, alpha=1)
+                # plt.xlabel("radial basis degree")
+                # plt.ylabel("angle basis degree")
                 plt.colorbar(scatter_plot, label="Log of absolute value of estimated coefficient")
                 plt.show()
 
@@ -92,8 +98,8 @@ def max_mean_error_analysis(test_fn, max_degree, num_sample_points, basis, power
     random_points = [[random.random() * (domain[1] - domain[0]) + domain[0] for domain in [(rho, 1), (0, 2 * np.pi)]] for _ in range(num_sample_points)]
     epsilon_plot = list(itertools.chain([10**i for i in powers], [5*10**i for i in powers]))
     max_mean_errors = [max_mean_error(test_fn, epsilon, random_points, basis, max_degree) for epsilon in epsilon_plot]
-    plt.scatter(np.log10(epsilon_plot), np.log([error[0] for error in max_mean_errors]), s=25, color="red", label="Max error")
-    plt.scatter(np.log10(epsilon_plot), np.log([error[1] for error in max_mean_errors]), s=25, color="blue", label="Mean error")
+    plt.scatter(np.log10(epsilon_plot), np.log10([error[0] for error in max_mean_errors]), s=25, color="red", label="Max error")
+    plt.scatter(np.log10(epsilon_plot), np.log10([error[1] for error in max_mean_errors]), s=25, color="blue", label="Mean error")
     plt.xlabel("log10(epsilon)")
     plt.ylabel("log(error)")
     plt.legend(bbox_to_anchor=(1, 1), loc='upper left')
