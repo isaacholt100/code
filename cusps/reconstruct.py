@@ -1,23 +1,13 @@
-from enum import unique
+from typing import Literal, Tuple, TypedDict
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import companion
 import math
-import random
-from numpy.polynomial.chebyshev import chebfit as polyfit
-from numpy.polynomial.chebyshev import chebval as polyval
+from scipy.spatial import Delaunay
 
 from cusps.approx import points_approx
-from cusps.errors import gap_weighted_error, sum_max_abs_error
 
 np.random.seed(42) # make things reproducible
-
-def intersecting_cosine_curves_1(x: float):
-    y1 = math.sin(x)
-    y2 = math.cos(2*x)
-    y3 = math.sin(2*x)
-    y4 = 1/3 + math.cos(2*x/3)
-    return np.array(sorted([y1, y2, y3, y4])[0:3])
 
 def chebyshev_t(n: int, x: float):
     return math.cos(n * math.acos(x))
@@ -60,12 +50,12 @@ def reconstruct_roots(values):
     roots = np.sort(np.linalg.eigvals(matrix))
     return roots
 
-def estimate_matched_cusp_point(close_points): # given a set of sample points at which surfaces are close (potential matched cusp point candidates), estimate a representative for this set of points. weight by closeness
+def estimate_matched_cusp_point(close_points): # given a set of sample points at which surfaces are close (potential matched cusp point candidates), estimate a representative for this set of points
     return min(close_points, key=lambda x: x[1])[0]
-    # return sum(point for (point, dist) in close_points) / len(close_points)
 
 # TODO: write code for finding ubnmatched cusps using derivaives, adjust code for smoothing only there
-def find_matched_cusp_points(sample_points, original_surfaces, interpolant_degree: int, tolerance: float, approx_basis, dimension: int):
+
+def find_matched_cusp_points_old(sample_points, original_surfaces, interpolant_degree: int, value_tolerance: float, approx_basis, dimension: int):
     assert len(sample_points) == original_surfaces.shape[1]
     surface_count = original_surfaces.shape[0]
     esps = [elem_sym_poly(surface_count, r) for r in range(1, surface_count + 1)]
@@ -77,19 +67,8 @@ def find_matched_cusp_points(sample_points, original_surfaces, interpolant_degre
     for i, values in enumerate(zip(*interpolated_curves)):
         roots = reconstruct_roots(values)
         within_tolerance = False
-        # break_outer = False
-        # for j in range(len(roots)):
-        #     for k in range(j + 1, len(roots)):
-        #         dist = abs(roots[j] - roots[k])
-        #         if dist < tolerance:
-        #             within_tolerance = True
-        #             current_close_points.append((sample_points[i], dist))
-        #             break_outer = True
-        #             break
-        #     if break_outer:
-        #         break
         dist = abs(roots[-2] - roots[-1])
-        if dist < tolerance:
+        if dist < value_tolerance:
             within_tolerance = True
             current_close_points.append((sample_points[i], dist))
         if not within_tolerance and len(current_close_points) > 0:
@@ -100,14 +79,245 @@ def find_matched_cusp_points(sample_points, original_surfaces, interpolant_degre
         matched_cusp_points.append(estimate_matched_cusp_point(current_close_points))
     return matched_cusp_points
 
+def cluster_and_estimate(close_points: list[Tuple], point_tolerance: float):
+    close_points.sort(key=lambda x: x[1])
+    matched_cusp_points = []
+    i = 0
+    while True:
+        if i >= len(close_points):
+            break
+        current_cluster = [close_points[i]]
+        j = i + 1
+        while True:
+            if j >= len(close_points):
+                break
+            if np.linalg.norm(close_points[i][0] - close_points[j][0]) < point_tolerance:
+                p = close_points.pop(j)
+                current_cluster.append(p)
+            else:
+                j += 1
+        matched_cusp_points.append(current_cluster[0][0]) # since we sorted the array by distance at the start of the function, the first item of the current cluster is guaranteed to be the one with minimal distance
+        i += 1
+    return matched_cusp_points
+
+def find_matched_cusp_points(sample_points, original_surfaces, interpolant_degree: int, value_tolerance: float, point_tolerance: float, approx_basis, dimension: int):
+    assert len(sample_points) == original_surfaces.shape[1]
+    surface_count = original_surfaces.shape[0]
+    esps = [elem_sym_poly(surface_count, r) for r in range(1, surface_count + 1)]
+    esp_curves = [[esp(original_surfaces[:, i].tolist()) for i in range(original_surfaces.shape[1])] for esp in esps]
+    approxes = [points_approx(approx_basis, sample_points, esp_curve, interpolant_degree, dimension) for esp_curve in esp_curves]
+    interpolated_curves = [[approx[0](x) for x in sample_points] for approx in approxes]
+    close_points = []
+    for i, values in enumerate(zip(*interpolated_curves)):
+        roots = reconstruct_roots(values)
+        dist = abs(roots[-2] - roots[-1])
+        if dist < value_tolerance:
+            close_points.append((sample_points[i], dist))
+    # print(close_points)
+    matched_cusp_points = cluster_and_estimate(close_points, point_tolerance)
+    return matched_cusp_points
+
 def unique_index_pairs(end: int):
     import itertools
     iterator = itertools.product(range(end), range(end))
     return filter(lambda i: i[0] > i[1], iterator)
 
-matched_cusp_point_cache = []
+class MatchCuspParams(TypedDict):
+    value_tolerance: float
+    point_tolerance: float
 
-def reconstruct_enhanced(a: float, b: float, sample_points, original_surfaces, interpolant_degree: int, smoothing_degree: int, delta_p: float, removal_epsilon: float, smoothing_sample_range: float, approx_basis, dimension: int, matched_cusp_point_search_tolerance: float):
+def reconstruct_enhanced(sample_points, original_surfaces, interpolant_degree: int, delta_p: float, delta_q: float, removal_epsilon: float, approx_basis, dimension: int, match_cusps: MatchCuspParams | list, use_delaunay = False):
+    assert interpolant_degree > 0
+    assert delta_p >= 0
+    assert delta_q >= delta_p
+    assert removal_epsilon >= 0
+
+    surface_count = original_surfaces.shape[0]
+
+    matched_cusp_points = find_matched_cusp_points(sample_points, original_surfaces, interpolant_degree, value_tolerance=match_cusps["value_tolerance"], point_tolerance=match_cusps["point_tolerance"], approx_basis=approx_basis, dimension=dimension) if isinstance(match_cusps, dict) else match_cusps
+
+    if removal_epsilon > 0:
+        i = 0
+        while True:
+            if i >= len(sample_points):
+                break
+            x = sample_points[i]
+            for p in matched_cusp_points:
+                if np.linalg.norm(x - p) < removal_epsilon:
+                    sample_points = np.delete(sample_points, i, axis=0)
+                    original_surfaces = np.delete(original_surfaces, i, axis=1)
+                    continue
+            i += 1
+
+    indices_full = []
+    indices_bottom = []
+    # if use_delaunay:
+    #     delta_q = delta_p # TODO: change later, this is just for testing Delaunay
+    for i in range(len(sample_points)):
+        if all(np.linalg.norm(sample_points[i] - p) >= delta_q for p in matched_cusp_points):
+            indices_bottom.append(i)
+        if any(np.linalg.norm(sample_points[i] - p) <= delta_p for p in matched_cusp_points):
+            indices_full.append(i)
+
+    def single_cusp_sigmoid(cusp, x):
+        norm = np.linalg.norm(x - cusp)
+        if norm >= delta_q:
+            return 1
+        if norm <= delta_p:
+            return 0
+        return sigmoid(delta_p, delta_q, norm)
+    
+    def product_sigmoid(x):
+        return math.prod(single_cusp_sigmoid(cusp, x) for cusp in matched_cusp_points)
+    
+    esps_full = [elem_sym_poly(surface_count, r) for r in range(1, surface_count + 1)]
+    esps_bottom = [elem_sym_poly(surface_count - 1, r) for r in range(1, surface_count)]
+
+    sample_points_full = [sample_points[i] for i in indices_full]
+    sample_points_bottom = [sample_points[i] for i in indices_bottom]
+
+    esp_curves_full = [[esp(original_surfaces[:, i].tolist()) for i in indices_full] for esp in esps_full]
+    esp_curves_bottom = [[esp(original_surfaces[0:-1, i].tolist()) for i in indices_bottom] for esp in esps_bottom]
+
+    approxes_full = [points_approx(approx_basis, sample_points_full, esp_curve, interpolant_degree, dimension) for esp_curve in esp_curves_full] if len(sample_points_full) > 0 else []
+    approxes_bottom = [points_approx(approx_basis, sample_points_bottom, esp_curve, interpolant_degree, dimension) for esp_curve in esp_curves_bottom] if len(sample_points_bottom) > 0 else []
+
+    interpolated_curves_full = [[approx[0](x) for x in sample_points] for approx in approxes_full]
+    interpolated_curves_bottom = [[approx[0](x) for x in sample_points] for approx in approxes_bottom]
+
+    if use_delaunay:
+        triangulation_points = np.array(matched_cusp_points + [[-1, -1], [-1, 1], [1, -1], [1, 1]]) # TODO: make this generalisable to arbitrary domains (domain needs to be tensor product of intervals)
+        triangulation = Delaunay(triangulation_points)
+        simplices = triangulation.simplices
+
+        indices_delaunay = [[] for _ in range(len(simplices))]
+        new_indices_bottom = []
+        indices_delaunay_all = []
+        for i in indices_bottom:
+            simplex_index = triangulation.find_simplex(sample_points[i])
+            if simplex_index != -1:
+                indices_delaunay[simplex_index].append(i)
+                indices_delaunay_all.append(i)
+            else:
+                new_indices_bottom.append(i)
+
+        indices_bottom = new_indices_bottom
+
+        sample_points_delaunay = [[sample_points[i] for i in idx] for idx in indices_delaunay]
+        sample_points_delaunay_all = [sample_points[i] for i in indices_delaunay_all]
+
+        esp_curves_delaunay = [[[esp(original_surfaces[0:-1, i].tolist()) for i in idx] for esp in esps_bottom] for idx in indices_delaunay]
+        esp_curves_delaunay_all = [[esp(original_surfaces[0:-1, i].tolist()) for i in indices_delaunay_all] for esp in esps_bottom]
+
+        approxes_delaunay = [[points_approx(approx_basis, sample_points_delaunay[j], esp_curve, interpolant_degree, dimension) for esp_curve in esp_curves_delaunay[j]] if len(sample_points_delaunay[j]) > 0 else [] for j in range(len(simplices))]
+        approxes_delaunay_all = [points_approx(approx_basis, sample_points_delaunay_all, esp_curve, interpolant_degree, dimension) for esp_curve in esp_curves_delaunay_all] if len(sample_points_delaunay_all) > 0 else []
+
+        interpolated_curves_delaunay = [[[approx[0](x) for x in sample_points] for approx in approxes] for approxes in approxes_delaunay]
+        interpolated_curves_delaunay_all = [[approx[0](x) for x in sample_points] for approx in approxes_delaunay_all]
+
+    # for esp in esps_bottom:
+    #     break
+    #     # plt.plot(sample_points, [esp(original_surfaces[0:-1, i].tolist()) for i in range(len(sample_points))])
+    # plt.plot(sample_points, interpolated_curves_bottom)
+    # for curve in interpolated_curves_bottom:
+    #     plt.plot(sample_points, curve)
+    # plt.show()
+
+    # for esp in esps_full:
+    #     break
+    #     # plt.plot(sample_points, [esp(original_surfaces[:, i].tolist()) for i in range(len(sample_points))])
+    # for curve in interpolated_curves_full:
+    #     plt.plot(sample_points, curve)
+    # plt.show()
+
+        def barycentric_coords(x, x1, x2, x3):
+            det = (x2[1] - x3[1])*(x1[0] - x3[0]) + (x3[0] - x2[0])*(x1[1] - x3[1])
+            lambda1 = ((x2[1] - x3[1])*(x[0] - x3[0]) + (x3[0] - x2[0])*(x[1] - x3[1])) / det
+            lambda2 = ((x3[1] - x1[1])*(x[0] - x3[0]) + (x1[0] - x3[0])*(x[1] - x3[1])) / det
+            lambda3 = 1 - lambda1 - lambda2
+            return [lambda1, lambda2, lambda3]
+        
+        def transition_component(x, simplex_index: int):
+            simplex_vertices = [triangulation_points[i] for i in triangulation.simplices[simplex_index]]
+            return math.prod(smooth_step(l) for l in barycentric_coords(x, simplex_vertices[0], simplex_vertices[1], simplex_vertices[2])) * math.prod(single_cusp_sigmoid(vertex, x) for vertex in simplex_vertices)
+
+        def f(x):
+            if x > 0:
+                return math.exp(-1/x)
+            return 0
+
+        def g(x):
+            return f(x) / (f(x) + f(1 - x))
+
+        def smooth_step(x):
+            a = 0
+            b = 0.01
+            return g((x - a)/(b - a))
+        
+        plt_fn = lambda: plt.triplot(triangulation_points[:, 0], triangulation_points[:, 1], triangulation.simplices, color="red")
+        # plt.show()
+
+        reconstructed_surfaces = np.empty(original_surfaces.shape)
+        for i in range(len(sample_points)):
+            # if i in indices_full:
+            #     roots = reconstruct_roots(np.array(interpolated_curves_full)[:, i])
+            #     reconstructed_surfaces[:, i] = roots
+            #     continue
+            simplex_index = triangulation.find_simplex(sample_points[i])
+            # assert simplex_index != -1
+            if True or simplex_index != -1:
+                weights = [transition_component(sample_points[i], j) for j in range(len(simplices))]
+                weights_test = np.zeros(len(simplices))
+                weights_test[simplex_index] = 1
+                alpha = product_sigmoid(sample_points[i])
+
+                values_unmerged = [np.array(interpolated_curves_delaunay[j])[:, i] for j in range(len(simplices))]
+                roots_full = reconstruct_roots(np.array(interpolated_curves_full)[:, i])
+                roots_unmerged = [np.array([*reconstruct_roots(values_unmerged[j]) * weights[j], math.nan]) for j in range(len(simplices))] + [roots_full * (1 - alpha)]
+                roots = np.sum(roots_unmerged, axis=0) / (np.sum(weights) + (1 - alpha))
+                reconstructed_surfaces[:, i] = roots
+                continue
+            if simplex_index != -1 and len(sample_points_delaunay[simplex_index]) > 0:
+                values = np.array(interpolated_curves_delaunay[simplex_index])[:, i]
+                roots = np.array([*reconstruct_roots(values), math.nan])
+                reconstructed_surfaces[:, i] = roots
+                continue
+            if len(sample_points_bottom) == 0:
+                roots = reconstruct_roots(np.array(interpolated_curves_full)[:, i])
+                reconstructed_surfaces[:, i] = roots
+            elif len(sample_points_full) == 0:
+                values_bottom = np.array(interpolated_curves_bottom)[:, i]
+                roots_bottom = np.array([*reconstruct_roots(values_bottom), math.nan])
+                reconstructed_surfaces[:, i] = roots_bottom
+            else:
+                roots = reconstruct_roots(np.array(interpolated_curves_full)[:, i])
+                values_bottom = np.array(interpolated_curves_bottom)[:, i]
+                roots_bottom = np.array([*reconstruct_roots(values_bottom), math.nan])
+                x = sample_points[i]
+                alpha = product_sigmoid(x)
+                reconstructed_surfaces[:, i] = alpha * roots_bottom + (1 - alpha) * roots
+
+        return sample_points, original_surfaces, reconstructed_surfaces, plt_fn # return sample_points and original_surfaces because they may have been modified
+    reconstructed_surfaces = np.empty(original_surfaces.shape)
+    for i in range(len(sample_points)):
+        if len(sample_points_bottom) == 0:
+            roots = reconstruct_roots(np.array(interpolated_curves_full)[:, i])
+            reconstructed_surfaces[:, i] = roots
+        elif len(sample_points_full) == 0:
+            values_bottom = np.array(interpolated_curves_bottom)[:, i]
+            roots_bottom = np.array([*reconstruct_roots(values_bottom), math.nan])
+            reconstructed_surfaces[:, i] = roots_bottom
+        else:
+            roots = reconstruct_roots(np.array(interpolated_curves_full)[:, i])
+            values_bottom = np.array(interpolated_curves_bottom)[:, i]
+            roots_bottom = np.array([*reconstruct_roots(values_bottom), math.nan])
+            x = sample_points[i]
+            alpha = product_sigmoid(x)
+            reconstructed_surfaces[:, i] = alpha * roots_bottom + (1 - alpha) * roots
+
+    return sample_points, original_surfaces, reconstructed_surfaces, lambda: () # return sample_points and original_surfaces because they may have been modified
+
+def reconstruct_enhanced_1d(a: float, b: float, sample_points, original_surfaces, interpolant_degree: int, smoothing_degree: int, delta_p: float, removal_epsilon: float, smoothing_sample_range: float, approx_basis, dimension: int, matched_cusp_point_search_tolerance: float):
     assert interpolant_degree > 0
     assert smoothing_degree >= 0
     assert delta_p >= 0
@@ -115,9 +325,7 @@ def reconstruct_enhanced(a: float, b: float, sample_points, original_surfaces, i
 
     surface_count = original_surfaces.shape[0]
 
-    global matched_cusp_point_cache
-    matched_cusp_points = find_matched_cusp_points(sample_points, original_surfaces, interpolant_degree, tolerance=matched_cusp_point_search_tolerance, approx_basis=approx_basis, dimension=dimension) if matched_cusp_point_cache == [] else matched_cusp_point_cache
-    matched_cusp_point_cache = matched_cusp_points
+    matched_cusp_points = find_matched_cusp_points(sample_points, original_surfaces, interpolant_degree, value_tolerance=matched_cusp_point_search_tolerance, point_tolerance=0.1, approx_basis=approx_basis, dimension=dimension) # TODO: add param for point tolerance, if we're even still using this function
     # matched_cusp_points.pop(0)
     # matched_cusp_points = [np.pi/8, np.pi/3]
     # print("actual cusp points:", [np.pi/8, np.pi/3])
@@ -157,16 +365,7 @@ def reconstruct_enhanced(a: float, b: float, sample_points, original_surfaces, i
                     continue
             i += 1
 
-
-    delta_q = delta_p + 0.01 # TODO: make this a parameter
-    r = 1 # controls how much of a plateau at 1 we have. smaller r means a narrower plateau
-    midpoints = [a] # TODO: rewrite for arbitrary dimensions
-    for i in range(len(matched_cusp_points) - 1):
-        midpoints.append((matched_cusp_points[i] + matched_cusp_points[i + 1])/2)
-    midpoints.append(b)
-
-    away_from_cusp_indices = []
-    near_cusp_indices = []
+    delta_q = delta_p + 0.01
 
     indices_full = []
     indices_bottom = []
@@ -175,31 +374,6 @@ def reconstruct_enhanced(a: float, b: float, sample_points, original_surfaces, i
             indices_bottom.append(i)
         if any(np.linalg.norm(sample_points[i] - p) <= delta_p for p in matched_cusp_points):
             indices_full.append(i)
-        near = False
-        # if all(np.linalg.norm(sample_points[i] - p) >= delta_p for p in matched_cusp_points):
-        #     indices_bottom.append(i)
-        # full_index = True
-        # x = sample_points[i]
-        # for j in range(len(matched_cusp_points)):
-        #     A = midpoints[j]
-        #     C = matched_cusp_points[j] - delta_p
-        #     B = (1 - r) * A + r*C
-        #     D = matched_cusp_points[j] + delta_p
-        #     F = midpoints[j + 1]
-        #     E = (1 - r)*F + r*D
-        #     if (A <= x and x <= B) or (E <= x and x <= F):
-        #         full_index = False
-        #         break
-        # if full_index:
-        #     indices_full.append(i)
-
-        for p in matched_cusp_points:
-            if np.linalg.norm(sample_points[i] - p) < delta_p:
-                near_cusp_indices.append(i)
-                near = True
-                break
-        if not near:
-            away_from_cusp_indices.append(i)
 
     # print(indices_full)
     # assert set(indices_full).union(set(indices_bottom)) == set(range(len(sample_points)))
@@ -212,81 +386,33 @@ def reconstruct_enhanced(a: float, b: float, sample_points, original_surfaces, i
             return 1
         if norm <= delta_p:
             return 0
-        # r = delta_p / norm
-        # start = (1 - r)*cusp + r*x
-        # assert abs(np.linalg.norm(start - cusp) - delta_p) < 1e-8
-        # s = delta_q / norm
-        # end = (1 - s)*cusp + s*x
-        # assert abs(np.linalg.norm(end - cusp) - delta_q) < 1e-8
         return sigmoid(delta_p, delta_q, norm)
     
     def product_sigmoid(x):
         return math.prod(single_cusp_sigmoid(cusp, x) for cusp in matched_cusp_points)
     
-    def piecewise_sigmoid(x):
-        for i in range(len(matched_cusp_points)):
-            A = midpoints[i]
-            C = matched_cusp_points[i] - delta_p
-            B = (1 - r) * A + r*C
-            D = matched_cusp_points[i] + delta_p
-            F = midpoints[i + 1]
-            E = (1 - r)*F + r*D
-            if A <= x and x <= B:
-                return 1
-            if B <= x and x <= C:
-                return 1 - sigmoid(B, C, x)
-            if C <= x and x <= D:
-                return 0
-            if D <= x and x <= E:
-                return sigmoid(D, E, x)
-            if E <= x and x <= F:
-                return 1
-        raise Exception("piecewise_sigmoid range error")
-    
-    # plt.plot(sample_points, [piecewise_sigmoid(x) for x in sample_points])
-    # plt.plot(sample_points, [product_sigmoid(x) for x in sample_points])
-    # plt.show()
-    
-    esps_away = [elem_sym_poly(surface_count - 1, r) for r in range(1, surface_count)]
-    esps_near = [elem_sym_poly(surface_count, r) for r in range(1, surface_count + 1)]
-
-    sample_points_away = [sample_points[i] for i in away_from_cusp_indices]
-    sample_points_near = [sample_points[i] for i in near_cusp_indices]
-    esp_away_curves = [[esp(original_surfaces[0:-1, i].tolist()) for i in away_from_cusp_indices] for esp in esps_away]
-    esp_near_curves = [[esp(original_surfaces[:, i].tolist()) for i in near_cusp_indices] for esp in esps_near]
-    approxes_away = [points_approx(approx_basis, sample_points_away, esp_curve, interpolant_degree, dimension) for esp_curve in esp_away_curves] if len(sample_points_away) > 0 else []
-    approxes_near = [points_approx(approx_basis, sample_points_near, esp_curve, interpolant_degree, dimension) for esp_curve in esp_near_curves] if len(sample_points_near) > 0 else []
-    interpolated_curves_away = [[approx[0](x) for x in sample_points_away] for approx in approxes_away]
-    interpolated_curves_near = [[approx[0](x) for x in sample_points_near] for approx in approxes_near] # TODO: for some reason, this gives better errors than using polyfit and polyval
+    esps_full = [elem_sym_poly(surface_count - 1, r) for r in range(1, surface_count)]
+    esps_bottom = [elem_sym_poly(surface_count, r) for r in range(1, surface_count + 1)]
 
     sample_points_full = [sample_points[i] for i in indices_full]
     sample_points_bottom = [sample_points[i] for i in indices_bottom]
-    esp_curves_full = [[esp(original_surfaces[:, i].tolist()) for i in indices_full] for esp in esps_near]
-    esp_curves_bottom = [[esp(original_surfaces[0:-1, i].tolist()) for i in indices_bottom] for esp in esps_away]
+    esp_curves_full = [[esp(original_surfaces[:, i].tolist()) for i in indices_full] for esp in esps_bottom]
+    esp_curves_bottom = [[esp(original_surfaces[0:-1, i].tolist()) for i in indices_bottom] for esp in esps_full]
     approxes_full = [points_approx(approx_basis, sample_points_full, esp_curve, interpolant_degree, dimension) for esp_curve in esp_curves_full] if len(sample_points_full) > 0 else []
     approxes_bottom = [points_approx(approx_basis, sample_points_bottom, esp_curve, interpolant_degree, dimension) for esp_curve in esp_curves_bottom] if len(sample_points_bottom) > 0 else []
     interpolated_curves_full = [[approx[0](x) for x in sample_points] for approx in approxes_full] # NOTE: for some reason, this gives better errors than using polyfit and polyval
     interpolated_curves_bottom = [[approx[0](x) for x in sample_points] for approx in approxes_bottom] # NOTE: for some reason, this gives better errors than using polyfit and polyval
 
     reconstructed_surfaces = np.empty(original_surfaces.shape)
-    # for i, values in enumerate(zip(*interpolated_curves_away)):
-    #     roots = reconstruct_roots(values)
-    #     idx = away_from_cusp_indices[i]
-    #     reconstructed_surfaces[:, idx] = [*roots, math.nan] # include NaN at the end to make the lengths match
-    # for i, values in enumerate(zip(*interpolated_curves_near)):
-    #     roots = reconstruct_roots(values)
-    #     idx = near_cusp_indices[i]
-    #     reconstructed_surfaces[:, idx] = roots
-    for i, values in enumerate(zip(*interpolated_curves_full)):
-        roots = reconstruct_roots(values)
+    for i, (values_full, values_bottom) in enumerate(zip(zip(*interpolated_curves_full), zip(*interpolated_curves_bottom))):
+        roots_full = reconstruct_roots(values_full)
         if len(sample_points_bottom) == 0:
-            reconstructed_surfaces[:, i] = roots
+            reconstructed_surfaces[:, i] = roots_full
         else:
-            values_bottom = np.array(interpolated_curves_bottom)[:, i]
             roots_bottom = np.array([*reconstruct_roots(values_bottom), math.nan])
             x = sample_points[i]
             alpha = product_sigmoid(x)
-            reconstructed_surfaces[:, i] = alpha * roots_bottom + (1 - alpha) * roots
+            reconstructed_surfaces[:, i] = alpha * roots_bottom + (1 - alpha) * roots_full
 
     return sample_points, original_surfaces, reconstructed_surfaces # return sample_points and original_surfaces because they may have been modified
 
@@ -299,14 +425,12 @@ def sigmoid(a, b, x):
         return f(x) / (f(x) + f(1 - x))
     return g((x - a)/(b - a))
 
-def reconstruct_frobenius(sample_points, curves, interpolant_degree: int, approx_basis, dimension: int):
-    original_surfaces = np.array([curves(x) for x in sample_points]).T
+def reconstruct_frobenius(sample_points, original_surfaces, interpolant_degree: int, approx_basis, dimension: int):
     surface_count = original_surfaces.shape[0]
     esps = [elem_sym_poly(surface_count, r) for r in range(1, surface_count + 1)]
     esp_curves = [[esp(original_surfaces[:, i].tolist()) for i in range(original_surfaces.shape[1])] for esp in esps]
     approxes = [points_approx(approx_basis, sample_points, esp_curve, interpolant_degree, dimension) for esp_curve in esp_curves]
     interpolated_curves = [[approx[0](x) for x in sample_points] for approx in approxes]
-    # interpolated_curves = [polyval(sample_points, polyfit(sample_points, esp_curve, interpolant_degree)) for esp_curve in esp_curves]
     
     reconstructed_surfaces = np.empty(original_surfaces.shape)
     for i, values in enumerate(zip(*interpolated_curves)):
@@ -319,5 +443,4 @@ def reconstruct_direct(sample_points, curves, interpolant_degree: int, approx_ba
     original_surfaces = np.array([curves(x) for x in sample_points]).T
     approxes = [points_approx(approx_basis, sample_points, surface, interpolant_degree, dimension) for surface in original_surfaces]
     reconstructed_surfaces = [[approx[0](x) for x in sample_points] for approx in approxes]
-    # reconstructed_surfaces = [polyval(sample_points, polyfit(sample_points, surface, interpolant_degree)) for surface in original_surfaces]
     return original_surfaces, np.array(reconstructed_surfaces)

@@ -23,14 +23,13 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
     grid_points = np.vstack([points.ravel() for points in mesh]).T # equally spaced grid points with the correct dimension
     rand_unif_points = [[random.random() * (domain[1] - domain[0]) + domain[0] for domain in domains] for _ in range(num_sample_points)]
     for i in range(len(rand_unif_points)):
-        if random.random() < 1:
+        if random.random() < 0.99:
             point = rand_unif_points[i]
-            for i in range(10): # TODO: plot error against number of random rotations, also do this for the discrete
-                r1 = random.random() * 2 * np.pi
-                rand_unif_points.append([point[0] + r1, point[1] + r1])
-            for i in range(5):
-                r2 = 2 * i * np.pi/5
-                rand_unif_points.append([point[0] + r2, point[1] + r2])
+            rand_unif_points.append([point[0], point[1] + 2*np.pi/3])
+            rand_unif_points.append([point[0], point[1] + 4*np.pi/3])
+            # for i in range(10):
+            #     r1 = random.random() * 2 * np.pi
+            #     rand_unif_points.append([point[0] + r1, point[1] + r1])
     points_dict = {
         # "cheb": list(itertools.product(*[gen_cheb_points(math.ceil(math.pow(num_sample_points, 1/dim))) for _ in range(dim)])), # Cartesian product of chebyshev points
         # "random_cheb": random.sample(gen_cheb_points(2 * num_sample_points), num_sample_points),
@@ -75,6 +74,61 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
                 # plt.ylabel("angle basis degree")
                 plt.colorbar(scatter_plot, label="Log of absolute value of estimated coefficient")
                 plt.show()
+
+def generator_rotations_analysis(f, domains: list[Tuple[float, float]], basis, max_degree: int, num_sample_points: int, generator_rotations: list):
+    dim = len(domains) # number of dimensions
+    mesh = np.meshgrid(*[np.linspace(domain[0], domain[1], math.ceil(math.pow(NUM_GRID_POINTS, 1/dim))) for domain in domains])
+    grid_points = np.vstack([points.ravel() for points in mesh]).T # equally spaced grid points with the correct dimension
+    init_rand_unif_points = [[random.random() * (domain[1] - domain[0]) + domain[0] for domain in domains] for _ in range(num_sample_points)]
+    errors = []
+    for n in generator_rotations:
+        rand_unif_points = init_rand_unif_points.copy()
+        print("progress:", n)
+        for i in range(len(rand_unif_points)):
+            if random.random() < 1:
+                point = rand_unif_points[i]
+                for i in range(n):
+                    r1 = random.random() * 2 * np.pi
+                    rand_unif_points.append([point[0] + r1, point[1] + r1])
+        (approx, coeffs, X) = poly_approx(f, basis, rand_unif_points, max_degree, dimension=dim)
+        max_error_point = grid_points[0]
+        max_error = 0 # estimate the max norm error
+        for x in grid_points:
+            error = np.abs(approx(x) - f(*x))
+            if error > max_error:
+                max_error = error
+                max_error_point = x
+        errors.append(max_error)
+    plt.scatter(generator_rotations, errors)
+    plt.show()
+
+def depletion_probability_analysis(f, domains: list[Tuple[float, float]], basis, max_degree: int, num_sample_points: int, inclusion_probabilities):
+    dim = len(domains) # number of dimensions
+    mesh = np.meshgrid(*[np.linspace(domain[0], domain[1], math.ceil(math.pow(NUM_GRID_POINTS, 1/dim))) for domain in domains])
+    grid_points = np.vstack([points.ravel() for points in mesh]).T # equally spaced grid points with the correct dimension
+    init_rand_unif_points = [[random.random() * (domain[1] - domain[0]) + domain[0] for domain in domains] for _ in range(num_sample_points)]
+    grid = np.meshgrid(*[np.linspace(domain[0], domain[1], math.ceil(math.sqrt(num_sample_points))) for domain in domains])
+    init_rand_unif_points = np.vstack([coord.ravel() for coord in grid]).T.tolist()
+    errors = []
+    for p in inclusion_probabilities:
+        rand_unif_points = init_rand_unif_points.copy()
+        print("progress:", p)
+        for i in range(len(rand_unif_points)):
+            if random.random() < p:
+                point = rand_unif_points[i]
+                rand_unif_points.append([point[0], point[1] + 2/3*np.pi])
+                rand_unif_points.append([point[0], point[1] + 4/3*np.pi])
+        (approx, coeffs, X) = poly_approx(f, basis, rand_unif_points, max_degree, dimension=dim)
+        max_error_point = grid_points[0]
+        max_error = 0 # estimate the max norm error
+        for x in grid_points:
+            error = np.abs(approx(x) - f(*x))
+            if error > max_error:
+                max_error = error
+                max_error_point = x
+        errors.append(max_error)
+    plt.scatter(inclusion_probabilities, errors)
+    plt.show()
 
 def max_mean_error(test_fn, epsilon: float, points: list[list[float]], basis, max_degree):
     f = test_fn(epsilon)
