@@ -9,8 +9,11 @@ y_range = (-3, 3)
 
 x_plot, y_plot = np.meshgrid(np.linspace(*x_range, 200), np.linspace(*y_range, 200), indexing="ij")
 input_values = np.vstack((x_plot.flatten(), y_plot.flatten())).T
-scale_factor = 2 # change this to adjust how close the matched cusp points are. with delta_p = 0.2, delta_q = 0.8, sf~0.8 gives overlapping "bubbles", sf~2 gives nicely spaced "bubbles"
-matched_cusp_points = list(map(lambda l: np.array(l)*scale_factor, [[0, -1], [0, 1], [np.sqrt(3)/2, 1/2], [np.sqrt(3)/2, -1/2], [-np.sqrt(3)/2, 1/2], [-np.sqrt(3)/2, -1/2]])) # scaled points on a hexagon, similar to graphene matched cusps
+scale_factor = 2.0 # change this to adjust how close the matched cusp points are. with delta_p = 0.2, delta_q = 0.8, sf~0.8 gives overlapping "bubbles", sf~2 gives nicely spaced "bubbles"
+matched_cusp_points = list(map(
+    lambda l: np.array(l)*scale_factor,
+    [[0, -1], [0, 1], [np.sqrt(3)/2, 1/2], [np.sqrt(3)/2, -1/2], [-np.sqrt(3)/2, 1/2], [-np.sqrt(3)/2, -1/2]]
+)) # scaled points on a hexagon, similar to graphene matched cusps
 z_plot = [matched_cusps_approx_weight(delta_p=0.2, delta_q=0.8, matched_cusp_points=matched_cusp_points, x=x) for x in input_values]
 z_plot = np.array(z_plot).reshape(x_plot.shape)
 
