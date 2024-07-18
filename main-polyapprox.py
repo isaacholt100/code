@@ -2,7 +2,7 @@ import math
 from matplotlib import pyplot as plt
 import numpy as np
 from polyapprox.bases import annulus_basis, cheb_basis, symmetric_annulus_basis, trig_basis, two_annulus_basis
-from polyapprox.analyses import depletion_probability_analysis, generator_rotations_analysis, max_mean_error_analysis, analysis
+from polyapprox.analyses import coefficient_convergence_analysis, depletion_probability_analysis, generator_rotations_analysis, max_mean_error_analysis, analysis
 
 rho = 1/100000
 
@@ -41,14 +41,15 @@ def f2(x, y):
 def f3(r, theta):
     return math.cos(3*theta) + math.cos(6*theta) * (r**3 - r**2) + r**6 - 2*r + math.cos(12*theta) + math.sin(6*theta) / (1 + r**2)
 
+# coefficient_convergence_analysis(f3, 6, annulus_basis(rho), num_sample_points=1000, domains=[(rho, 1), (0, 2 * np.pi)], degrees=range(4, 30))
+
 # tensor product of chebyshev basis (for radius) and trig basis (for angle)
-analysis(f3, domains=[(rho, 1), (0, 2 * np.pi)], bases=[annulus_basis(rho)], max_degree=23, num_sample_points=1000)
+# analysis(f3, domains=[(rho, 1), (0, 2 * np.pi)], bases=[annulus_basis(rho)], max_degree=23, num_sample_points=1000)
 
 ## 2D Trig ##
 
 def g(theta1, theta2):
     return math.sin(theta1 - theta2) + math.cos(2*(theta1 - theta2)) + math.sin(3*(theta1 - theta2)) + math.sin(4*(theta1 - theta2))
-## TODO: make the 6 a 4 instead
 
 # tensor product of trig bases
 # analysis(g, domains=[(0, 2 * np.pi), (0, 2 * np.pi)], bases=[trig_basis], max_degree=13, num_sample_points=600)
@@ -94,5 +95,11 @@ def test_fn_1(epsilon: float):
 # reading: ch 13 book, ch 3 and 4 book, ch 7 and 8 book
 
 
-generator_rotations_analysis(g, domains=[(0, 2*np.pi), (0, 2 * np.pi)], basis=trig_basis, max_degree=13, num_sample_points=1000, generator_rotations=list(range(40)))
+generator_rotations_analysis(g, domains=[(0, 2*np.pi), (0, 2 * np.pi)], basis=trig_basis, max_degree=13, num_sample_points=1000, generator_rotations=list(range(0, 40, 2)))
 # depletion_probability_analysis(f3, domains=[(rho, 1), (0, 2 * np.pi)], basis=annulus_basis(rho), max_degree=23, num_sample_points=1000, inclusion_probabilities=np.linspace(0, 1, 30))
+
+# TODO: look up paper(s) by Sergey N. Pozdnyakov, Michele Ceriotti
+# TODO: try post-symmetrisation
+# TODO: try using loads of rotations, not much data
+
+# TODO: plot 1d cut of the approximation of g with ~40 rotations vs actual g (cut along theta1 = theta2 plane)

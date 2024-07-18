@@ -4,7 +4,8 @@ import math
 from mpl_toolkits import mplot3d
 
 from cusps.errors import gap_weighted_error, sum_max_abs_error
-from cusps.reconstruct import cheb_basis_shifted, find_matched_cusp_points, reconstruct_direct, reconstruct_enhanced, reconstruct_enhanced_1d, reconstruct_frobenius, two_cheb_basis
+from cusps.esps import reconstruct_roots
+from cusps.reconstruct import cheb_basis_shifted, find_matched_cusp_points, reconstruct_direct, reconstruct_enhanced, reconstruct_frobenius, two_cheb_basis
 
 def curves_1(x: float):
     y1 = math.sin(x)
@@ -58,7 +59,7 @@ def plot_params():
     values = np.linspace(0, 1.1, 30)
     max_abs_errors, gap_weighted_errors = [], []
     for value in values:
-        _, original_surfaces, reconstructed_surfaces, _ = reconstruct_enhanced(samples, original_surfaces=np.array([curves_4(x) for x in samples]).T, interpolant_degree=20, delta_p=value, delta_q=value+0.01, removal_epsilon=0.0, approx_basis=cheb_basis_shifted(0, 2), dimension=1, match_cusps={"value_tolerance": 0.1, "point_tolerance": 0.1})
+        _, original_surfaces, reconstructed_surfaces, _ = reconstruct_enhanced([(0, 2)], samples, original_surfaces=np.array([curves_1(x) for x in samples]).T, interpolant_degree=20, delta_p=value, delta_q=value+0.01, removal_epsilon=0.0, approx_basis=cheb_basis_shifted(0, 2), match_cusps={"value_tolerance": 0.1, "point_tolerance": 0.1})
         max_abs_errors.append(sum_max_abs_error(original_surfaces, reconstructed_surfaces))
         gap_weighted_errors.append(gap_weighted_error(original_surfaces, reconstructed_surfaces))
 
@@ -73,11 +74,12 @@ def plot_params():
 # plot_params()
 
 
-# x_values, original_surfaces, reconstructed_surfaces = reconstruct_enhanced(samples, original_surfaces=np.array([curves_3(x) for x in samples]).T, interpolant_degree=20, delta_p=0.05, delta_q=0.055, removal_epsilon=0.01, approx_basis=cheb_basis_shifted(0, 2), dimension=1, match_cusps=[1])
+# x_values, original_surfaces, reconstructed_surfaces, _ = reconstruct_enhanced([(0, 2)], samples, original_surfaces=np.array([curves_1(x) for x in samples]).T, interpolant_degree=20, delta_p=0.27, delta_q=0.275, removal_epsilon=0.0, approx_basis=cheb_basis_shifted(0, 2), match_cusps={"value_tolerance": 0.1, "point_tolerance": 0.1})
 # plot_reconstruction(x_values, original_surfaces, reconstructed_surfaces, name="Enhanced")
 
 # print("sum max abs error:", sum_max_abs_error(original_surfaces, reconstructed_surfaces))
 # print("gap weighted error:", gap_weighted_error(original_surfaces, reconstructed_surfaces))
+# exit(0)
 
 # x_values, original_surfaces, reconstructed_surfaces = reconstruct_enhanced(samples, original_surfaces=np.array([curves_1(x) for x in samples]).T, interpolant_degree=20, delta_p=0.423, delta_q=0.433, removal_epsilon=0.0, approx_basis=cheb_basis_shifted(0, 2), dimension=1, match_cusps={"value_tolerance": 0.1, "point_tolerance": 0.1})
 # plot_reconstruction(x_values, original_surfaces, reconstructed_surfaces, name="Enhanced")
@@ -107,29 +109,6 @@ def plot_params():
 
 # original_surfaces, reconstructed_surfaces = reconstruct_direct(samples, curves=intersecting_cosine_curves_1, interpolant_degree=20, approx_basis=cheb_basis_shifted(0, 2), dimension=1)
 # plot_reconstruction(samples, original_surfaces, reconstructed_surfaces, name="Direct")
-
-def plot_convergence(error_fn, degrees, title: str):
-    errors_enhanced = []
-    errors_frobenius = []
-    errors_direct = []
-    for degree in degrees:
-        _, original_surfaces, reconstructed_surfaces = reconstruct_enhanced_1d(0, 2, samples, original_surfaces=np.array([curves_1(x) for x in samples]).T, interpolant_degree=degree, smoothing_degree=8, delta_p=0.211, removal_epsilon=0.618, smoothing_sample_range=0.15, approx_basis=cheb_basis_shifted(0, 2), dimension=1, matched_cusp_point_search_tolerance=0.1)
-        errors_enhanced.append(error_fn(original_surfaces, reconstructed_surfaces))
-
-        original_surfaces, reconstructed_surfaces = reconstruct_frobenius(samples, np.array([curves_1(x) for x in samples]).T, interpolant_degree=degree, approx_basis=cheb_basis_shifted(0, 2), dimension=1)
-        errors_frobenius.append(error_fn(original_surfaces, reconstructed_surfaces))
-
-        original_surfaces, reconstructed_surfaces = reconstruct_direct(samples, curves=curves_1, interpolant_degree=degree, approx_basis=cheb_basis_shifted(0, 2), dimension=1)
-        errors_direct.append(error_fn(original_surfaces, reconstructed_surfaces))
-    
-    plt.plot(degrees, errors_enhanced, label="Enhanced")
-    plt.plot(degrees, errors_frobenius, label="Frobenius")
-    plt.plot(degrees, errors_direct, label="Direct")
-    plt.xlabel("Interpolant degree")
-    plt.ylabel("Error")
-    plt.title(title)
-    plt.legend()
-    plt.show()
 
 # plot_convergence(gap_weighted_error, range(10, 45), title="Gap weighted error")
 # plot_convergence(sum_max_abs_error, range(10, 45), title="Sum max abs error")
@@ -206,17 +185,17 @@ energies3 = np.array([g1(x, y) for (x, y) in input_values])
 energies4 = np.array([g2(x, y) for (x, y) in input_values])
 sorted_curves = np.partition(np.vstack([energies1, energies2, energies3, energies4]), [0, 1, 2, 3], axis=0)
 
-fig = plt.figure()
-ax = plt.axes(projection="3d")
-ax.contour3D(x1, y1, sorted_curves[0].reshape(x1.shape), 100, cmap="binary")
-ax.contour3D(x1, y1, sorted_curves[1].reshape(x1.shape), 100, cmap="plasma")
-ax.contour3D(x1, y1, sorted_curves[2].reshape(x1.shape), 100, cmap="viridis")
-ax.contour3D(x1, y1, sorted_curves[3].reshape(x1.shape), 100, cmap="binary")
-# ax.view_init(30, 35)
-plt.show()
+# fig = plt.figure()
+# ax = plt.axes(projection="3d")
+# ax.contour3D(x1, y1, sorted_curves[0].reshape(x1.shape), 100, cmap="binary")
+# ax.contour3D(x1, y1, sorted_curves[1].reshape(x1.shape), 100, cmap="plasma")
+# ax.contour3D(x1, y1, sorted_curves[2].reshape(x1.shape), 100, cmap="viridis")
+# ax.contour3D(x1, y1, sorted_curves[3].reshape(x1.shape), 100, cmap="binary")
+# # ax.view_init(30, 35)
+# plt.show()
 
 def compare_delaunay(input_values, delta_p: float, delta_q: float):
-    _, original_surfaces_delaunay, reconstructed_surfaces_delaunay, fn = reconstruct_enhanced(input_values, np.array(sorted_curves[0:-1]), interpolant_degree=20, delta_p=delta_p, delta_q=delta_q, removal_epsilon=0.0, approx_basis=two_cheb_basis, dimension=2, match_cusps={"value_tolerance": 0.2, "point_tolerance": 0.1}, use_delaunay=True)
+    _, original_surfaces_delaunay, reconstructed_surfaces_delaunay, fn = reconstruct_enhanced([(-1, 1), (-1, 1)], input_values, np.array(sorted_curves[0:-1]), interpolant_degree=20, delta_p=delta_p, delta_q=delta_q, removal_epsilon=0.0, approx_basis=two_cheb_basis, match_cusps={"value_tolerance": 0.2, "point_tolerance": 0.1}, use_delaunay=True)
     log_errors_delaunay = np.log10(np.sum([np.abs(reconstructed_surfaces_delaunay[i, :] - original_surfaces_delaunay[i, :]) for i in range(reconstructed_surfaces_delaunay.shape[0] - 1)], axis=0))
     print(sum_max_abs_error(original_surfaces_delaunay, reconstructed_surfaces_delaunay), gap_weighted_error(original_surfaces_delaunay, reconstructed_surfaces_delaunay))
 
@@ -226,7 +205,7 @@ def compare_delaunay(input_values, delta_p: float, delta_q: float):
     plt.clim(-8, 0)
     plt.show()
 
-    _, original_surfaces_enhanced, reconstructed_surfaces_enhanced, _ = reconstruct_enhanced(input_values, np.array(sorted_curves[0:-1]), interpolant_degree=20, delta_p=delta_p, delta_q=delta_q, removal_epsilon=0.0, approx_basis=two_cheb_basis, dimension=2, match_cusps={"value_tolerance": 0.2, "point_tolerance": 0.1}, use_delaunay=False)
+    _, original_surfaces_enhanced, reconstructed_surfaces_enhanced, _ = reconstruct_enhanced([(-1, 1), (-1, 1)], input_values, np.array(sorted_curves[0:-1]), interpolant_degree=20, delta_p=delta_p, delta_q=delta_q, removal_epsilon=0.0, approx_basis=two_cheb_basis, match_cusps={"value_tolerance": 0.2, "point_tolerance": 0.1}, use_delaunay=False)
     log_errors_enhanced = np.log10(np.sum([np.abs(reconstructed_surfaces_enhanced[i, :] - original_surfaces_enhanced[i, :]) for i in range(reconstructed_surfaces_enhanced.shape[0] - 1)], axis=0))
     print(sum_max_abs_error(original_surfaces_enhanced, reconstructed_surfaces_enhanced), gap_weighted_error(original_surfaces_enhanced, reconstructed_surfaces_enhanced))
 
@@ -257,7 +236,7 @@ def plot_params_2d():
     print(matched_cusp_points)
     for value in values:
         print("progress:", value)
-        _, original_surfaces, reconstructed_surfaces, _ = reconstruct_enhanced(input_values, np.array(sorted_curves[0:-1]), interpolant_degree=20, delta_p=value, delta_q=value+0.01, removal_epsilon=0.00, approx_basis=two_cheb_basis, dimension=2, match_cusps=matched_cusp_points, use_delaunay=False)
+        _, original_surfaces, reconstructed_surfaces, _ = reconstruct_enhanced([(-1, 1), (-1, 1)], input_values, np.array(sorted_curves[0:-1]), interpolant_degree=20, delta_p=value, delta_q=value+0.01, removal_epsilon=0.00, approx_basis=two_cheb_basis, match_cusps=matched_cusp_points, use_delaunay=False)
         max_abs_errors.append(sum_max_abs_error(original_surfaces, reconstructed_surfaces))
         gap_weighted_errors.append(gap_weighted_error(original_surfaces, reconstructed_surfaces))
 
@@ -271,5 +250,6 @@ def plot_params_2d():
     plt.show()
 
 # plot_params_2d()
-## TODO: look more into delaunay with low values of delta, there's where it may have an advantage
-## TODO: think about how we could smooth out the seams in the boundaries between simplices in the delaunay approximation. possibly using something like sigmoid, would have to work with polyhedra rather than balls though. (TODO: SEE MOST RECENT DIAGRAM IN PAD)
+
+## TODO: what distribution of points is best to approximate around matched cusp (shoudl be clustered around the cusps)
+## TODO: Schmeisser matrix learning

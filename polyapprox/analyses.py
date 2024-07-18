@@ -23,10 +23,13 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
     grid_points = np.vstack([points.ravel() for points in mesh]).T # equally spaced grid points with the correct dimension
     rand_unif_points = [[random.random() * (domain[1] - domain[0]) + domain[0] for domain in domains] for _ in range(num_sample_points)]
     for i in range(len(rand_unif_points)):
-        if random.random() < 0.99:
+        # if random.random() < 0.99:
             point = rand_unif_points[i]
-            rand_unif_points.append([point[0], point[1] + 2*np.pi/3])
-            rand_unif_points.append([point[0], point[1] + 4*np.pi/3])
+            n = 50
+            for i in range(n):
+                r1 = i/n * 2 * np.pi
+                rand_unif_points.append([point[0] + r1, point[1] + r1])
+                rand_unif_points.append([point[0] + r1, point[1] + r1])
             # for i in range(10):
             #     r1 = random.random() * 2 * np.pi
             #     rand_unif_points.append([point[0] + r1, point[1] + r1])
@@ -75,6 +78,20 @@ def analysis(f, domains: list[Tuple[float, float]], bases: list, max_degree: int
                 plt.colorbar(scatter_plot, label="Log of absolute value of estimated coefficient")
                 plt.show()
 
+def coefficient_convergence_analysis(f, num_coeffs, basis, num_sample_points, domains, degrees):
+    coefficients = []
+    rand_unif_points = [[random.random() * (domain[1] - domain[0]) + domain[0] for domain in domains] for _ in range(num_sample_points)] 
+    for max_degree in degrees:
+        (approx, coeffs, X) = poly_approx(f, basis, rand_unif_points, max_degree, dimension=len(domains))
+        coefficients.append(coeffs[0:num_coeffs])
+    coefficients = np.transpose(coefficients)
+    for i in range(coefficients.shape[0]):
+        plt.scatter(list(degrees)[0:-1], np.log10(np.abs(coefficients[i, 1:] - coefficients[i, 0:-1])), label=f"coefficient {i}")
+    plt.xlabel("Approximation degree")
+    plt.ylabel("Log10 of absolute value of coefficient change between current and next degree")
+    plt.legend()
+    plt.show()
+
 def generator_rotations_analysis(f, domains: list[Tuple[float, float]], basis, max_degree: int, num_sample_points: int, generator_rotations: list):
     dim = len(domains) # number of dimensions
     mesh = np.meshgrid(*[np.linspace(domain[0], domain[1], math.ceil(math.pow(NUM_GRID_POINTS, 1/dim))) for domain in domains])
@@ -88,7 +105,7 @@ def generator_rotations_analysis(f, domains: list[Tuple[float, float]], basis, m
             if random.random() < 1:
                 point = rand_unif_points[i]
                 for i in range(n):
-                    r1 = random.random() * 2 * np.pi
+                    r1 = i/n * 2 * np.pi
                     rand_unif_points.append([point[0] + r1, point[1] + r1])
         (approx, coeffs, X) = poly_approx(f, basis, rand_unif_points, max_degree, dimension=dim)
         max_error_point = grid_points[0]
@@ -99,7 +116,7 @@ def generator_rotations_analysis(f, domains: list[Tuple[float, float]], basis, m
                 max_error = error
                 max_error_point = x
         errors.append(max_error)
-    plt.scatter(generator_rotations, errors)
+    plt.scatter(generator_rotations, np.log10(errors))
     plt.show()
 
 def depletion_probability_analysis(f, domains: list[Tuple[float, float]], basis, max_degree: int, num_sample_points: int, inclusion_probabilities):

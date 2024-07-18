@@ -1,9 +1,9 @@
 import numpy as np
 
-def estimate_coeffs(design_matrix, values) -> list[float]:
+def estimate_coeffs(design_matrix, values: list[float]) -> list[float]:
     X = design_matrix
-    beta = np.linalg.inv(X.T @ X) @ X.T @ values # formula from minimising the least-squares error
-    return beta.flatten().tolist()[0]
+    beta = np.linalg.lstsq(X, values, rcond=None)
+    return beta[0].tolist()
 
 def points_approx(basis, sample_points: list, values: list[float], max_degree: int, dimension: int):
     indices = max_degree_indices(max_degree, dimension)

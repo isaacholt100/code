@@ -1,6 +1,8 @@
+import math
 from matplotlib import pyplot as plt
 import numpy as np
 import pyvista as pv
+from scipy.spatial import Delaunay
 
 # def barycentric_coords(x, y, x1, y1, x2, y2, x3, y3):
 #     det = (y2 - y3)*(x1 - x3) + (x3 - x2)*(y1 - y3)
@@ -52,18 +54,28 @@ def b(x):
     b = 0.1
     return g((x - a)/(b - a))
 
-def smooth_step(x):
-    a = -0.1
-    b = 0
+def smooth_step(a, b, x):
     return g((x - a)/(b - a))
 
 def triangle_transition(x, x1, x2, x3):
     import math
-    return math.prod(smooth_step(l) for l in barycentric_coords(x, x1, x2, x3)) * b(np.linalg.norm(x - x1)**2) * b(np.linalg.norm(x - x2)**2) * b(np.linalg.norm(x - x3)**2)
+    return math.prod(smooth_step(0, 0.1, l) for l in barycentric_coords(x, x1, x2, x3)) * b(np.linalg.norm(x - x1)**2) * b(np.linalg.norm(x - x2)**2) * b(np.linalg.norm(x - x3)**2)
+
+def _barycentric_coords_new(triangulation: Delaunay, simplex_index: int, x):
+    b = triangulation.transform[simplex_index, :2].dot(np.transpose(x - triangulation.transform[simplex_index, 2]))
+    return b.tolist() + [1 - b.sum(axis=0)]
+
+
+def simplex_approx_weight(triangulation: Delaunay, x, simplex_index: int) -> float:
+    return math.prod(smooth_step(0, 0.11, l) for l in _barycentric_coords_new(triangulation, simplex_index, x))
+
+triangulation = Delaunay(np.array([[1, 1], [0, 1], [0, 0]]))
+print(triangulation.simplices)
+print(_barycentric_coords_new(triangulation, 0, [0.2, 0.5]))
 
 x_plot, y_plot = np.meshgrid(np.linspace(-1, 2, 101), np.linspace(-1, 2, 100), indexing="ij")
 input_values = np.vstack((x_plot.flatten(), y_plot.flatten())).T
-z_plot = [triangle_transition(x, [0, 0], [1, 0], [0, 1.5]) for x in input_values]
+z_plot = [simplex_approx_weight(triangulation, x, 0) for x in input_values]
 z_plot = np.array(z_plot).reshape(x_plot.shape)
 
 # fig = plt.figure()
