@@ -35,6 +35,9 @@ function elemsympoly(n::Integer, r::Integer)
     return out
 end
 
+elemsympoly("asdf", 4)
+asdfjkla("asdf")
+
 function estimatematchedcusppoint(closepoints::Vector{Tuple{T, Real}})::T where T
     estimate, _ = findmin(x -> x[1], closepoints)
     return estimate[0]
