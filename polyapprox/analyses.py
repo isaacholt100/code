@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 import itertools
-from typing import Iterable, Literal, Tuple
+from typing import Iterable, Literal, Tuple, TypedDict
 from polyapprox.approx import poly_approx, max_degree_indices
 
 NUM_GRID_POINTS = 10000
@@ -11,13 +11,20 @@ NUM_GRID_POINTS = 10000
 np.random.seed(42)
 
 # return list with rotated copies of each point inserted, in addition to the original points
-def insert_rotations(points, num_rotations: int, target_indices: list[int], distribution: Literal["equal-space", "rand-unif"]):
+class RotationInsertions(TypedDict):
+    equal_space: int
+    rand_unif: int
+def insert_rotations(points, target_indices: list[int], insertions: RotationInsertions):
     for i in range(len(points)): # use index loop rather than list item loop as we are modifying the list in the loop
         point = points[i]
-        for j in range(num_rotations):
-            rotation = j/num_rotations * 2 * np.pi
-            if distribution == "rand-unif":
-                rotation = random.random() * 2 * np.pi
+        for j in range(insertions["equal_space"]):
+            rotation = j/insertions["equal_space"] * 2 * np.pi
+            new_point = point.copy()
+            for k in target_indices:
+                new_point[k] += rotation
+            points.append(new_point)
+        for j in range(insertions["rand_unif"]):
+            rotation = random.random() * 2 * np.pi
             new_point = point.copy()
             for k in target_indices:
                 new_point[k] += rotation
@@ -32,6 +39,17 @@ def estimate_max_abs_error(f, approx, sample_points):
     max_error = 0 # estimate the max norm error
     for x in sample_points:
         error = np.abs(approx(x) - f(*x))
+        if error > max_error:
+            max_error = error
+            max_error_point = x
+    return max_error, max_error_point
+
+def estimate_max_abs_relative_error(f, approx, sample_points):
+    max_error_point = sample_points[0]
+    max_error = 0 # estimate the max norm error
+    for x in sample_points:
+        fx = f(*x)
+        error = np.abs(approx(x) - fx)/fx
         if error > max_error:
             max_error = error
             max_error_point = x
@@ -65,22 +83,30 @@ def coefficient_convergence_analysis(f, num_coeffs, basis, num_sample_points, do
     plt.legend()
     plt.show()
 
-def plot_generator_rotations_against_sum_non_symmetric_coefficients(f, domains: list[Tuple[float, float]], basis, max_degree: int, num_sample_points: int, generator_rotations: Iterable[int], is_coeff_index_symmetric, target_rotation_indices, distribution: Literal["equal-space", "rand-unif"]):
+# NOTE: only works for filter cases (since computes the 2-norm of the non-symmetric coeffs)
+def symmetry_error(coeffs, indices: list[list[int]], is_coeff_index_symmetric) -> float:
+    non_symmetric_coeffs_2_norm = 0
+    for (i, index) in enumerate(indices):
+        if not is_coeff_index_symmetric(index):
+            non_symmetric_coeffs_2_norm += np.abs(coeffs[i])**2
+    return np.sqrt(non_symmetric_coeffs_2_norm)
+
+def plot_generator_rotations_against_sum_non_symmetric_coefficients(f, domains: list[Tuple[float, float]], basis, max_degree: int, num_sample_points: int, generator_rotations: Iterable[int], is_coeff_index_symmetric, target_rotation_indices, distributions: list[Literal["equal-space", "rand-unif"]]):
     dim = len(domains) # number of dimensions
+    print(np.random.random())
     init_rand_unif_points = generate_rand_unif_points(domains, num_sample_points)
     errors = []
+    indices = max_degree_indices(max_degree, dim)
+    non_symmetric_coeff_indices = list(filter(lambda idx: not is_coeff_index_symmetric(idx), indices))
     for n in generator_rotations:
         rand_unif_points = init_rand_unif_points.copy()
         print("progress:", n)
-        rand_unif_points = insert_rotations(rand_unif_points, n, target_rotation_indices, distribution)
+        rand_unif_points = insert_rotations(rand_unif_points, target_rotation_indices, {"equal_space": n, "rand_unif": 0})
         (approx, coeffs, X) = poly_approx(f, basis, rand_unif_points, max_degree, dimension=dim)
-        indices = max_degree_indices(max_degree, dim)
-        sum_non_symmetric_coeffs = 0
-        for (i, index) in enumerate(indices):
-            if not is_coeff_index_symmetric(index):
-                sum_non_symmetric_coeffs += np.abs(coeffs[i])
-        errors.append(sum_non_symmetric_coeffs)
+        errors.append(symmetry_error(coeffs, indices, is_coeff_index_symmetric))
     plt.scatter(list(generator_rotations), np.log10(np.array(errors)))
+    plt.ylabel("log10 of 2-norm of non-symmetric coefficients")
+    plt.xlabel(f"number of extra rotations ({distributions})")
     plt.show()
 
 def depletion_probability_analysis(f, domains: list[Tuple[float, float]], basis, max_degree: int, num_sample_points: int, inclusion_probabilities, is_coeff_index_symmetric):
@@ -97,10 +123,13 @@ def depletion_probability_analysis(f, domains: list[Tuple[float, float]], basis,
                 rand_unif_points.append([point[0], point[1] + 4/3*np.pi])
         (approx, coeffs, X) = poly_approx(f, basis, rand_unif_points, max_degree, dimension=dim)
         indices = max_degree_indices(max_degree, dim)
-        sum_non_symmetric_coeffs = 0
-        for (i, index) in enumerate(indices):
-            if not is_coeff_index_symmetric(index):
-                sum_non_symmetric_coeffs += np.abs(coeffs[i])
-        errors.append(sum_non_symmetric_coeffs)
+        errors.append(symmetry_error(coeffs, indices, is_coeff_index_symmetric))
+    plt.ylabel("log10 of 2-norm of non-symmetric coefficients")
+    plt.xlabel(f"probability of including extra rotations")
     plt.scatter(inclusion_probabilities, np.log10(errors))
     plt.show()
+
+def symmetrise(f, group: list, group_action):
+    def f_sym(x):
+        return 1/len(group)*sum(f(group_action(g, x)) for g in group)
+    return f_sym

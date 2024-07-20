@@ -48,5 +48,3 @@ def find_matched_cusp_points(sample_points, original_surfaces, interpolant_degre
     # print(close_points)
     matched_cusp_points = cluster_and_estimate(close_points, point_tolerance)
     return matched_cusp_points
-
-# TODO: add pyvista plot for bubble wrap function and one where the bubbles overlap

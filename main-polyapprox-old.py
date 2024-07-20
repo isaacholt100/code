@@ -99,5 +99,3 @@ def test_fn_1(epsilon: float):
 # TODO: look up paper(s) by Sergey N. Pozdnyakov, Michele Ceriotti
 # TODO: try post-symmetrisation
 # TODO: try using loads of rotations, not much data
-
-# TODO: plot 1d cut of the approximation of g with ~40 rotations vs actual g (cut along theta1 = -theta2 plane)

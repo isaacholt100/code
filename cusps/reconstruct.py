@@ -139,8 +139,6 @@ def reconstruct_enhanced(domains: list[tuple[float, float]], sample_points, orig
             #     roots.append(math.nan)
             # reconstructed_surfaces[:, i] = roots
 
-        ## TODO: instead of weighting the roots, could try weighting the values?
-
         return sample_points, original_surfaces, reconstructed_surfaces, plt_fn # return sample_points and original_surfaces because they may have been modified
     
     for i in range(len(sample_points)):
