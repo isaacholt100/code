@@ -1,7 +1,7 @@
 import math
 from matplotlib import pyplot as plt
 import numpy as np
-from polyapprox.bases import annulus_basis, cheb_basis, symmetric_annulus_basis, trig_basis, two_annulus_basis
+from bases import annulus_basis, cheb_basis, symmetric_annulus_basis, trig_basis, two_annulus_basis
 from polyapprox.analyses import coefficient_convergence_analysis, depletion_probability_analysis
 
 rho = 1/100000

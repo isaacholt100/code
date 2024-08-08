@@ -1,6 +1,9 @@
 import math
+from typing import Callable
 import numpy as np
 from scipy.linalg import companion
+
+from custom_types import ComplexArray
 
 def _esp_indices(max: int, length: int) -> list[list[int]]:
     assert length >= 1
@@ -15,7 +18,7 @@ def _esp_indices(max: int, length: int) -> list[list[int]]:
         idx.append(max - 1)
     return [*a, *b]
 
-def elem_sym_poly(n: int, r: int):
+def elem_sym_poly(n: int, r: int) -> Callable[[list[float]], float]:
     def fn(x: list[float]):
         assert len(x) == n
         if r > n:
@@ -28,8 +31,9 @@ def elem_sym_poly(n: int, r: int):
         return s
     return fn
 
-def reconstruct_roots(values):
-    companion_column = [1] + [(-1)**(j + 1) * values[j] for j in range(len(values))]
-    matrix = companion(companion_column) # scipy's Frobenius companion matrix implementation for simplicity
+def reconstruct_roots(values: list[float]) -> ComplexArray:
+    companion_column = [(-1)**(j + 1) * values[j] for j in range(len(values))]
+    companion_column.insert(0, 1.0)
+    matrix = companion(companion_column)
     roots = np.sort(np.linalg.eigvals(matrix))
     return roots

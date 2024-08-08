@@ -1,17 +1,21 @@
-
-
+from typing import Any, TypedDict
 import numpy as np
 
+from bases import Basis
 from cusps.approx import points_approx
 from cusps.esps import elem_sym_poly, reconstruct_roots
+from custom_types import FloatArray
 
+class MatchCuspParams(TypedDict):
+    value_tolerance: float
+    point_tolerance: float
 
-def estimate_matched_cusp_point(close_points): # given a set of sample points at which surfaces are close (potential matched cusp point candidates), estimate a representative for this set of points
+def estimate_matched_cusp_point(close_points: list[tuple]) -> FloatArray: # given a set of sample points at which surfaces are close (potential matched cusp point candidates), estimate a representative for this set of points
     return min(close_points, key=lambda x: x[1])[0]
 
-# TODO: write code for finding ubnmatched cusps using derivaives, adjust code for smoothing only there
+def cluster_and_estimate(close_points: list[tuple[FloatArray, float]], point_tolerance: float) -> list[FloatArray]:
+    assert all(c[0].ndim == 1 for c in close_points)
 
-def cluster_and_estimate(close_points: list[tuple], point_tolerance: float):
     close_points.sort(key=lambda x: x[1])
     matched_cusp_points = []
     i = 0
@@ -32,19 +36,54 @@ def cluster_and_estimate(close_points: list[tuple], point_tolerance: float):
         i += 1
     return matched_cusp_points
 
-def find_matched_cusp_points(sample_points, original_surfaces, interpolant_degree: int, value_tolerance: float, point_tolerance: float, approx_basis, dimension: int):
-    assert len(sample_points) == original_surfaces.shape[1]
-    surface_count = original_surfaces.shape[0]
-    esps = [elem_sym_poly(surface_count, r) for r in range(1, surface_count + 1)]
-    esp_curves = [[esp(original_surfaces[:, i].tolist()) for i in range(original_surfaces.shape[1])] for esp in esps]
-    approxes = [points_approx(approx_basis, sample_points, esp_curve, interpolant_degree, dimension) for esp_curve in esp_curves]
-    interpolated_curves = [[approx[0](x) for x in sample_points] for approx in approxes]
+def find_matched_cusp_points(points: FloatArray, approx_surface_values: FloatArray, params: MatchCuspParams) -> list[FloatArray]:
+    assert points.ndim == 2
+    assert approx_surface_values.ndim == 2
+    assert points.shape[0] == approx_surface_values.shape[0]
+
     close_points = []
-    for i, values in enumerate(zip(*interpolated_curves)):
-        roots = reconstruct_roots(values)
+    for point, roots in zip(points, approx_surface_values):
         dist = abs(roots[-2] - roots[-1])
-        if dist < value_tolerance:
-            close_points.append((sample_points[i], dist))
-    # print(close_points)
-    matched_cusp_points = cluster_and_estimate(close_points, point_tolerance)
+        if dist < params["value_tolerance"]:
+            close_points.append((point, dist))
+    matched_cusp_points = cluster_and_estimate(close_points, params["point_tolerance"])
     return matched_cusp_points
+
+def find_lower_matched_cusp_points(points: FloatArray, approx_surface_values: FloatArray, params: MatchCuspParams) -> list[FloatArray]:
+    assert points.ndim == 2
+    assert approx_surface_values.ndim == 2
+    assert points.shape[0] == approx_surface_values.shape[0]
+
+    close_points = []
+    for point, roots in zip(points, approx_surface_values):
+        dist = min(abs(roots[i] - roots[i + 1]) for i in range(len(roots) - 1))
+        if dist < params["value_tolerance"]:
+            close_points.append((point, dist))
+    matched_cusp_points = cluster_and_estimate(close_points, params["point_tolerance"])
+    return matched_cusp_points
+
+def reconstruct_frobenius(
+    sample_points: FloatArray,
+    approximation_points: FloatArray,
+    original_surface_values: FloatArray,
+    interpolant_degree: int,
+    approx_basis: Basis
+) -> FloatArray:
+    assert sample_points.ndim == 2
+    assert approximation_points.ndim == 2
+    assert sample_points.shape[1] == approximation_points.shape[1]
+    assert sample_points.shape[0] == original_surface_values.shape[0]
+
+    surface_count = original_surface_values.shape[1]
+    esps = [elem_sym_poly(surface_count, r) for r in range(1, surface_count + 1)]
+    esp_curves = [[esp(surface_value.tolist()) for surface_value in original_surface_values] for esp in esps]
+    approxes = [points_approx(approx_basis, sample_points, np.array(esp_curve), interpolant_degree) for esp_curve in esp_curves]
+    esp_values = [[approx[0](x) for approx in approxes] for x in approximation_points]
+    
+    reconstructed_surfaces = np.empty((len(approximation_points), surface_count))
+    for i, values in enumerate(esp_values):
+        roots = reconstruct_roots(values)
+        # roots[-1] = math.nan
+        reconstructed_surfaces[i] = roots
+
+    return reconstructed_surfaces
