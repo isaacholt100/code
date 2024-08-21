@@ -10,10 +10,11 @@ from scipy import stats
 from matplotlib import pyplot as plt
 import numpy as np
 from bases import Basis
-from cusps.errors import gap_weighted_error
+from cusps.errors import gap_weighted_error, gap_weighted_error_pointwise, sum_max_abs_error
 from cusps.find_cusps import MatchCuspParams, find_lower_matched_cusp_points, find_matched_cusp_points, reconstruct_frobenius
 from cusps.reconstruct import get_surface_values, reconstruct_enhanced
 from custom_types import Curves, FloatArray
+from plot_2d import plot_2d
 from polyapprox.analyses import plotting_grid_points
 
 def _angles_to_sphere_coords(angles: list[float]) -> list[float]:
@@ -40,26 +41,30 @@ def _random_point_in_ball(centre: FloatArray, radius: float) -> FloatArray: # ge
     # angle_last = random.random() * 2 * math.pi
     return np.array([c + point_radius * coord for (c, coord) in zip(centre, _angles_to_sphere_coords(angles))])
 
-def _request_random_points_at_cusp(cusp: FloatArray, delta_q: float, count: int, dist) -> FloatArray:
+def _request_random_points_at_cusp(cusp: FloatArray, delta_outer: float, count: int, dist) -> FloatArray:
     assert cusp.ndim == 1
     if dist == "eq-space":
         if len(cusp) == 1:
-            return np.transpose([np.linspace(cusp[0] - delta_q, cusp[0] + delta_q, count)])
-        return np.array(list(filter(lambda p: np.linalg.norm(p - cusp) <= delta_q, plotting_grid_points([(cusp[0] - delta_q, cusp[0] + delta_q), (cusp[1] - delta_q, cusp[1] + delta_q)], math.ceil(count * 4/np.pi)))))
+            return np.transpose([np.linspace(cusp[0] - delta_outer, cusp[0] + delta_outer, count)])
+        return np.array(list(filter(lambda p: np.linalg.norm(p - cusp) <= delta_outer, plotting_grid_points([(cusp[0] - delta_outer, cusp[0] + delta_outer), (cusp[1] - delta_outer, cusp[1] + delta_outer)], math.ceil(count * 4/np.pi)))))
     if dist == "normal":
-        return np.transpose([stats.norm.rvs(cusp[0], 0.2, size=count)])
-    return np.array([_random_point_in_ball(cusp, delta_q) for _ in range(count)])
+        # ~99.7% of values drawn from normal distribution are within 3 standard deviations of the mean
+        if len(cusp) == 1:
+            return np.transpose([stats.norm.rvs(cusp[0], delta_outer/3, size=count)])
+        return np.transpose([stats.norm.rvs(cusp[0], delta_outer/3, size=count), stats.norm.rvs(cusp[1], delta_outer/3, size=count)])
+    return np.array([_random_point_in_ball(cusp, delta_outer) for _ in range(count)])
 
-def request_random_points(matched_cusps: list[FloatArray], delta_q: float, count: int, dist) -> FloatArray:
+def request_random_points(matched_cusps: list[FloatArray], delta_outer: float, count: int, dist) -> FloatArray:
     assert all(cusp.ndim == 1 for cusp in matched_cusps)
 
     single_count = count // len(matched_cusps)
     last_count = single_count + (count % len(matched_cusps))
     assert single_count * (len(matched_cusps) - 1) + last_count == count
 
-    points = _request_random_points_at_cusp(matched_cusps[0], delta_q, last_count, dist)
+    points = _request_random_points_at_cusp(matched_cusps[0], delta_outer, last_count, dist)
     for cusp in matched_cusps[1:]:
-        points = np.vstack([points, _request_random_points_at_cusp(cusp, delta_q, single_count, dist)])
+        new_points = _request_random_points_at_cusp(cusp, delta_outer, single_count, dist)
+        points = np.vstack([points, new_points])
     return points
 
 def is_in_approx_domain(point: FloatArray, domains: list[tuple[float, float]]) -> bool:
@@ -75,12 +80,15 @@ def is_in_approx_domain(point: FloatArray, domains: list[tuple[float, float]]) -
 def request_random_sample_points_and_values(
     curves: Curves,
     matched_cusps: list[FloatArray],
-    delta_q: float,
+    delta_outer: float,
     count: int,
     domains: list[tuple[float, float]],
     dist
 ) -> tuple[FloatArray, FloatArray]:
-    points = np.array(list(filter(lambda point: is_in_approx_domain(point, domains), request_random_points(matched_cusps, delta_q, count, dist))))
+    points = request_random_points(matched_cusps, delta_outer, count, dist)
+    print(points)
+    points = np.array(list(filter(lambda point: is_in_approx_domain(point, domains), 
+    points)))
     return points, get_surface_values(curves, points)
 
 # def request_equispaced_points
@@ -96,8 +104,8 @@ def reconstruct_active(
     approximation_points: FloatArray,
     curves: Curves,
     interpolant_degree: int,
-    delta_p: float,
-    delta_q: float,
+    delta_inner: float,
+    delta_outer: float,
     removal_epsilon: float,
     approx_basis: Basis,
     match_cusps: MatchCuspParams,
@@ -118,46 +126,57 @@ def reconstruct_active(
         approx_basis
     )
     matched_cusp_points = find_matched_cusp_points(approximation_points, reconstructed_frob, match_cusps)
+    # plt.scatter(*zip(*matched_cusp_points))
+    plt.show()
     prev_reconstruction, _ = reconstruct_enhanced(
         domains,
         sample_points,
         approximation_points,
         sample_surface_values,
         interpolant_degree,
-        delta_p,
-        delta_q,
+        delta_inner,
+        delta_outer,
         removal_epsilon,
         approx_basis,
         matched_cusp_points,
         use_delaunay
     )
+    # plt.plot(approximation_points, np.log10(gap_weighted_error_pointwise(approximation_surface_values, prev_reconstruction)), label=f"0 extra sample points")
     prev_error = gap_weighted_error(approximation_surface_values, prev_reconstruction)
+    # plot_2d(approximation_points, prev_reconstruction)
     ## TODO: find new cusp candidates in each iteration, use the previous reconstruction to do this
     ## TODO: warn if endpoint * weighting function is too large (should be very close to 0)
     for i in range(max_iters):
         print("iters:", i)
-        print(matched_cusp_points)
         lower_matched_cusp_points = find_lower_matched_cusp_points(approximation_points, prev_reconstruction, match_cusps)
+        print(prev_reconstruction.shape)
+        print(len(lower_matched_cusp_points))
         # print("lower matched cusps:", lower_matched_cusp_points)
         extra_sample_points, extra_sample_values = request_random_sample_points_and_values(curves, lower_matched_cusp_points, sample_radius, new_points_count, domains, dist=dist)
+
+
+        # plt.scatter(*zip(*matched_cusp_points))
+        # plt.scatter(*zip(*extra_sample_points))
+        # plt.show()
         sample_points = np.vstack([sample_points, extra_sample_points])
+        # plt.scatter(sample_points, [1] * len(sample_points))
         sample_surface_values = np.vstack([sample_surface_values, extra_sample_values])
-        print(len(sample_points))
+        # print(len(sample_points))
         new_reconstruction, _ = reconstruct_enhanced(
             domains,
             sample_points,
             approximation_points,
             sample_surface_values,
             interpolant_degree,
-            delta_p,
-            delta_q,
+            delta_inner,
+            delta_outer,
             removal_epsilon,
             approx_basis,
             matched_cusp_points,
             use_delaunay
         )
         new_error = gap_weighted_error(approximation_surface_values, new_reconstruction)
-        print(new_error, prev_error)
+        print("new:", new_error, ", old:", prev_error)
         if abs(new_error - prev_error) < err_diff_tol:
             return new_reconstruction
         prev_reconstruction = new_reconstruction
@@ -177,8 +196,8 @@ def empirical_distribution_estimate(
     approximation_points: FloatArray,
     curves: Curves,
     interpolant_degree: int,
-    delta_p: float,
-    delta_q: float,
+    delta_inner: float,
+    delta_outer: float,
     removal_epsilon: float,
     approx_basis: Basis,
     match_cusps: MatchCuspParams,
@@ -199,14 +218,29 @@ def empirical_distribution_estimate(
         interpolant_degree,
         approx_basis
     )
-    matched_cusp_points = []#find_matched_cusp_points(approximation_points, reconstructed_frob, match_cusps)
+    matched_cusp_points = find_matched_cusp_points(approximation_points, reconstructed_frob, match_cusps)
+    prev_reconstruction, _ = reconstruct_enhanced(
+        domains,
+        sample_points,
+        approximation_points,
+        sample_surface_values,
+        interpolant_degree,
+        delta_inner,
+        delta_outer,
+        removal_epsilon,
+        approx_basis,
+        matched_cusp_points,
+        use_delaunay
+    )
     ## TODO: warn if endpoint * weighting function is too large (should be very close to 0)
     curves_sequence = []
-    lower_matched_cusp_points = [np.array([0, 0])]#[np.array([5*np.pi/8])]
+    gap_weighted_errors_sequence = []
+    max_abs_errors_sequence = []
+    lower_matched_cusp_points = find_lower_matched_cusp_points(approximation_points, prev_reconstruction, match_cusps)#[np.array([0, 0])] if len(domains) == 2 else [np.array([5*np.pi/8])]
     test_points, test_values = request_random_sample_points_and_values(curves, lower_matched_cusp_points, sample_radius, 4*sample_count, domains, dist="eq-space")
     print("matched_cusp_points:", matched_cusp_points)
-    print(np.min(test_points), np.max(test_points))
     for i in range(max(max_iters_list)):
+        # lower_matched_cusp_points = find_lower_matched_cusp_points(approximation_points, prev_reconstruction, match_cusps)
         print("iters:", i)
         # lower_matched_cusp_points = find_lower_matched_cusp_points(approximation_points, prev_reconstruction, match_cusps)
         extra_sample_points, extra_sample_values = request_random_sample_points_and_values(curves, lower_matched_cusp_points, sample_radius, sample_count, domains, dist="eq-space")
@@ -218,13 +252,14 @@ def empirical_distribution_estimate(
             test_points,
             temp_sample_values,
             interpolant_degree,
-            delta_p,
-            delta_q,
+            delta_inner,
+            delta_outer,
             removal_epsilon,
             approx_basis,
             matched_cusp_points,
             use_delaunay
         )
+        prev_reconstruction = new_reconstruction
         errors = []
         assert len(test_values) == len(test_points) and len(test_points) == len(new_reconstruction)
         for sample_point, sample_value, estimated_value in zip(test_points, test_values, new_reconstruction):
@@ -259,38 +294,34 @@ def empirical_distribution_estimate(
                 new_point[j] -= min_dist
                 test_points = np.vstack([test_points, new_point])
                 test_values = np.vstack([test_values, curves(*new_point)])
-            # if idx == 0:
-            #     diff = test_points[1] - sample_point
-            #     assert diff >= 0
-            #     test_points = np.delete(test_points, 0, axis=0)
-            #     test_values = np.delete(test_values, 0, axis=0)
-            #     test_points = np.insert(test_points, 0, sample_point + diff/2, axis=0)
-            #     test_values = np.insert(test_values, 0, curves(*jk(sample_point + diff/2)), axis=0)
-            # elif idx == len(test_points) - 1:
-            #     diff = sample_point - test_points[-2]
-            #     assert diff >= 0
-            #     test_points = np.delete(test_points, -1, axis=0)
-            #     test_values = np.delete(test_values, -1, axis=0)
-            #     test_points = np.append(test_points, sample_point - diff/2, axis=0)
-            #     test_values = np.append(test_values, curves(*(sample_point - diff/2)), axis=0)
-            # else:
-            #     diff1 = sample_point - test_points[idx - 1]
-            #     assert diff1 >= 0
-            #     below = sample_point - diff1/2
-            #     diff2 = test_points[idx + 1] - sample_point
-            #     assert diff2 >= 0
-            #     above = sample_point + diff2/2
-            #     print(below - lower_matched_cusp_points[0], above - lower_matched_cusp_points[0])
-            #     test_points = np.delete(test_points, idx, axis=0)
-            #     test_values = np.delete(test_values, idx, axis=0)
-            #     test_points = np.insert(test_points, idx, above, axis=0)
-            #     test_values = np.insert(test_values, idx, curves(*above), axis=0)
-            #     test_points = np.insert(test_points, idx, below, axis=0) # NOTE: has to be this order of deletion/insertion
-            #     test_values = np.insert(test_values, idx, curves(*below), axis=0) # NOTE: has to be this order of deletion/insertion
-            # assert all(test_points[j][0] <= test_points[j + 1][0] for j in range(len(test_points) - 1))
         if i + 1 in max_iters_list:
+            new_reconstruction, _ = reconstruct_enhanced(
+                domains,
+                sample_points,
+                approximation_points,
+                sample_surface_values,
+                interpolant_degree,
+                delta_inner,
+                delta_outer,
+                removal_epsilon,
+                approx_basis,
+                matched_cusp_points,
+                use_delaunay
+            )
+            gap_weighted_errors_sequence.append(gap_weighted_error(approximation_surface_values, new_reconstruction))
+            max_abs_errors_sequence.append(sum_max_abs_error(approximation_surface_values, new_reconstruction))
             curves_sequence.append(deepcopy(included_samples))
 
+    plt.plot(max_iters_list, np.log10(gap_weighted_errors_sequence))
+    plt.xlabel("number of iterations")
+    plt.ylabel("log 10 of gap weighted error")
+    plt.title("convergence plot")
+    plt.show()
+    plt.plot(max_iters_list, np.log10(max_abs_errors_sequence))
+    plt.xlabel("number of iterations")
+    plt.ylabel("log 10 of max abs error")
+    plt.title("convergence plot")
+    plt.show()
     plt.figure(figsize=(12, 6))
     data_sequence = [[np.linalg.norm(x) for x in samples] for samples in curves_sequence]
     print(len(data_sequence), len(max_iters_list))

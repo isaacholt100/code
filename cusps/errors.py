@@ -12,14 +12,15 @@ def delta(s: FloatArray, i: int, j: int) -> float:
 def gap_weighted_error(original: FloatArray, reconstructed: FloatArray) -> float:
     assert original.ndim == 2
     assert reconstructed.ndim == 2
+    assert original.shape[0] == reconstructed.shape[0]
 
     return max(gap_weighted_error_pointwise(original, reconstructed))
 
 def gap_weighted_error_pointwise(original: FloatArray, reconstructed: FloatArray) -> list[float]:
     assert original.ndim == 2
     assert reconstructed.ndim == 2
+    assert original.shape[0] == reconstructed.shape[0]
 
-    # assert surface.shape == approximation.shape
     errors = []
     for k in range(reconstructed.shape[0]):
         surface_values = original[k, :]
@@ -28,14 +29,26 @@ def gap_weighted_error_pointwise(original: FloatArray, reconstructed: FloatArray
         errors.append(error)
     return errors
 
-def max_abs_errors(original: FloatArray, reconstructed: FloatArray) -> list[float]:
+def sum_abs_error_pointwise(original: FloatArray, reconstructed: FloatArray) -> list[float]:
     assert original.ndim == 2
     assert reconstructed.ndim == 2
+    assert original.shape[0] == reconstructed.shape[0]
     
-    return [max(abs(reconstructed[i, j] - original[i, j]) for i in range(reconstructed.shape[0])) for j in range(reconstructed.shape[1])]
+    return [sum(abs(reconstructed[i, j] - original[i, j]) for j in range(reconstructed.shape[1])) for i in range(reconstructed.shape[0])]
 
 def sum_max_abs_error(original: FloatArray, reconstructed: FloatArray) -> float:
     assert original.ndim == 2
     assert reconstructed.ndim == 2
+    assert original.shape[0] == reconstructed.shape[0]
 
-    return sum(max_abs_errors(original, reconstructed))
+    return max(sum_abs_error_pointwise(original, reconstructed))
+
+def mean_abs_error(original: FloatArray, reconstructed: FloatArray) -> float:
+    assert original.ndim == 2
+    assert reconstructed.ndim == 2
+    assert original.shape[0] == reconstructed.shape[0]
+    
+    return arithmetic_mean(sum_abs_error_pointwise(original, reconstructed))
+
+def arithmetic_mean(l: list[float]) -> float:
+    return sum(l) / len(l)

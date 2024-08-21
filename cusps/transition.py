@@ -23,33 +23,33 @@ def smooth_transition(a: float, b: float, x: float) -> float: # smooth transitio
         return 1
     return _g((x - a)/(b - a))
 
-def single_matched_cusp_approx_weight(delta_p: float, delta_q: float, cusp: FloatArray, x: FloatArray) -> float:
+def single_matched_cusp_approx_weight(delta_inner: float, delta_outer: float, cusp: FloatArray, x: FloatArray) -> float:
     assert cusp.ndim == 1
     assert x.ndim == 1
     assert cusp.shape == x.shape
-    assert delta_p <= delta_q
+    assert delta_inner <= delta_outer
     # assert len(cusp) == len(x)
     norm = float(np.linalg.norm(x - cusp))
-    return smooth_transition(delta_p, delta_q, norm)
+    return smooth_transition(delta_inner, delta_outer, norm)
 
-def matched_cusps_approx_weight(delta_p: float, delta_q: float, matched_cusp_points: list[FloatArray], x: FloatArray) -> float:
+def matched_cusps_approx_weight(delta_inner: float, delta_outer: float, matched_cusp_points: list[FloatArray], x: FloatArray) -> float:
     assert x.ndim == 1
     assert all(cusp.ndim == 1 for cusp in matched_cusp_points)
 
-    assert delta_p <= delta_q
-    return math.prod(single_matched_cusp_approx_weight(delta_p, delta_q, cusp, x) for cusp in matched_cusp_points)
+    assert delta_inner <= delta_outer
+    return math.prod(single_matched_cusp_approx_weight(delta_inner, delta_outer, cusp, x) for cusp in matched_cusp_points)
 
-def _barycentric_coords(triangulation: Delaunay, simplex_index: int, x: FloatArray) -> list[float]:
+def barycentric_coords(triangulation: Delaunay, simplex_index: int, x: FloatArray) -> list[float]:
     assert x.ndim == 1
 
     b = triangulation.transform[simplex_index, :2].dot(np.transpose(x - triangulation.transform[simplex_index, 2]))
     b = b.tolist()
-    b.append(1 - b.sum(axis=0))
+    b.append(1 - sum(b))
     return b
 
 def simplex_approx_weight(
-    delta_p: float,
-    delta_q: float,
+    delta_inner: float,
+    delta_outer: float,
     triangulation_points: FloatArray,
     triangulation: Delaunay,
     x: FloatArray,
@@ -57,6 +57,6 @@ def simplex_approx_weight(
 ) -> float:
     assert triangulation_points.ndim == 2
 
-    assert delta_p <= delta_q
+    assert delta_inner <= delta_outer
     simplex_vertices = [triangulation_points[i] for i in triangulation.simplices[simplex_index]]
-    return math.prod(smooth_transition(0, 0.1, l) for l in _barycentric_coords(triangulation, simplex_index, x)) * math.prod(single_matched_cusp_approx_weight(delta_p, delta_q, vertex, x) for vertex in simplex_vertices)
+    return math.prod(smooth_transition(-0.01, 0.1, l) for l in barycentric_coords(triangulation, simplex_index, x)) * math.prod(single_matched_cusp_approx_weight(delta_inner, delta_outer, vertex, x) for vertex in simplex_vertices)

@@ -31,9 +31,22 @@ def elem_sym_poly(n: int, r: int) -> Callable[[list[float]], float]:
         return s
     return fn
 
-def reconstruct_roots(values: list[float]) -> ComplexArray:
+def reconstruct_roots_frob(values: list[float]) -> ComplexArray:
     companion_column = [(-1)**(j + 1) * values[j] for j in range(len(values))]
     companion_column.insert(0, 1.0)
     matrix = companion(companion_column)
     roots = np.sort(np.linalg.eigvals(matrix))
     return roots
+
+def reconstruct_roots(values: list[float]) -> ComplexArray:
+    return reconstruct_roots_chebyshev(values)
+
+def reconstruct_roots_chebyshev(values: list[float]) -> ComplexArray:
+    n = len(values)
+    if n == 3:
+        c = [-(2*values[0] + 4*values[2]), 4*values[1] + 3, -2*values[0], 1]
+        return np.polynomial.chebyshev.chebroots(c)
+    if n == 2:
+        c = [1 + 2*values[1], -2*values[0], 1]
+        return np.polynomial.chebyshev.chebroots(c)
+    raise Exception(f"invalid value of n: {n}")

@@ -76,8 +76,13 @@ print(triangulation.simplices)
 print(_barycentric_coords_new(triangulation, 0, [0.2, 0.5]))
 
 x_plot, y_plot = np.meshgrid(np.linspace(-0.1, 1.1, 300), np.linspace(-0.1, 1.1, 300), indexing="ij")
+x_plot, y_plot = np.meshgrid(np.linspace(-1, 1, 300), np.linspace(-1, 1, 300), indexing="ij")
 input_values = np.vstack((x_plot.flatten(), y_plot.flatten())).T
-z_plot = [simplex_approx_weight(0.2, 0.4, [[1, 1], [0, 1], [0, 0]], triangulation, x, 0) for x in input_values]
+z_plot = [simplex_approx_weight(0.2, 0.4, np.array([[1, 1], [0, 1], [0, 0]]), triangulation, x, 0) for x in input_values]
+def gen_sinh_func(a: float, b: float):
+    return lambda x, y: math.sinh(math.sqrt(a**2 * y**2 + b**2 * x**2)/(a*b))
+sinhf = gen_sinh_func(1, 1)
+z_plot = [sinhf(*x) for x in input_values]
 z_plot = np.array(z_plot).reshape(x_plot.shape)
 
 # fig = plt.figure()

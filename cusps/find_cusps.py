@@ -49,18 +49,19 @@ def find_matched_cusp_points(points: FloatArray, approx_surface_values: FloatArr
     matched_cusp_points = cluster_and_estimate(close_points, params["point_tolerance"])
     return matched_cusp_points
 
-def find_lower_matched_cusp_points(points: FloatArray, approx_surface_values: FloatArray, params: MatchCuspParams) -> list[FloatArray]:
+def find_lower_matched_cusp_points(points: FloatArray, approx_surface_values: FloatArray, params: MatchCuspParams, exclude_top_surface: bool = False) -> list[FloatArray]:
     assert points.ndim == 2
     assert approx_surface_values.ndim == 2
     assert points.shape[0] == approx_surface_values.shape[0]
 
     close_points = []
     for point, roots in zip(points, approx_surface_values):
-        dist = min(abs(roots[i] - roots[i + 1]) for i in range(len(roots) - 1))
+        dist = min(abs(roots[i] - roots[i + 1]) for i in range(len(roots) - 2 if exclude_top_surface else len(roots) - 1))
         if dist < params["value_tolerance"]:
             close_points.append((point, dist))
     matched_cusp_points = cluster_and_estimate(close_points, params["point_tolerance"])
     return matched_cusp_points
+
 
 def reconstruct_frobenius(
     sample_points: FloatArray,
